@@ -90,3 +90,11 @@ Every dashboard includes the same **Payment calendar**, linked to the selected m
 Expense records follow the portal's weekly card layout: a period navigator, six-part totals strip and **To save**, **Ready to pay**, **Paid** columns. New expenses default to To save. Save (or Save all) moves drafts to Ready to pay; Mark paid updates their recorded status; Undo returns them to Ready to pay. These buttons update the tracker only; they do not send payments. The record's date is its due date, which appears in the calendar. Existing Pending expenses appear under Ready to pay, and existing Paid expenses remain Paid.
 
 The History view lists paid expenses for the selected month. Weekly exports include the displayed week and active filters. Details, editing, deletion and per-card CSV downloads are available on each card. The first authenticated connection adds expense-stage and weekly-weekday columns and updates the schedule constraint automatically. Run the updated schema as the Neon owner if your app role lacks migration permissions.
+
+## Matching payment-stage sidebars and income records
+
+The Expenses sidebar and weekly record columns share **To save → Ready to pay → Paid**. Income uses the same weekly card layout with **To save → Ready to receive → Received**. Sidebar counts use each board's selected week; clicking a stage filters that board to the matching records.
+
+New income defaults to To save. Save or Save all moves it to Ready to receive and activates its recurring forecast. Mark received updates actual received-income totals; Undo returns it to Ready to receive. Draft income does not increase expected-income totals or generate scheduled forecasts. Existing Expected records remain Ready to receive, and existing Received records remain Received. The automatic Neon migration adds the income-stage column without deleting records.
+
+Income has its own week navigation, per-card details, editing, deletion, CSV downloads and received-payment History for the selected month. All amounts remain PHP.

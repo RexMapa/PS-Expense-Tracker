@@ -46,10 +46,14 @@ export function createHandler({ env = process.env, getDatabase, readState } = {}
           const e = req.body.income;
           if (!validateIncome(e)) return send(400, { error: 'Check the income fields and schedule. Weekly income needs a weekday; monthly income needs one payday, or two different paydays for twice-monthly income.' });
           const frequency = e.frequency ?? 'once';
-          await sql.query(`INSERT INTO income (id, description, source, amount, date, category, status, notes, frequency, pay_day_1, pay_day_2, pay_weekday)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, source=EXCLUDED.source, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, frequency=EXCLUDED.frequency, pay_day_1=EXCLUDED.pay_day_1, pay_day_2=EXCLUDED.pay_day_2, pay_weekday=EXCLUDED.pay_weekday, updated_at=now()`,
-          [e.id, e.description.trim(), e.source.trim(), e.amount, e.date, e.category, e.status, e.notes, frequency, ['monthly','twice_monthly'].includes(frequency) ? e.payDay1 : null, frequency === 'twice_monthly' ? e.payDay2 : null, frequency === 'weekly' ? e.payWeekday : null]);
+          await sql.query(`INSERT INTO income (id, description, source, amount, date, category, status, notes, frequency, pay_day_1, pay_day_2, pay_weekday, stage)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, source=EXCLUDED.source, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, frequency=EXCLUDED.frequency, pay_day_1=EXCLUDED.pay_day_1, pay_day_2=EXCLUDED.pay_day_2, pay_weekday=EXCLUDED.pay_weekday, stage=EXCLUDED.stage, updated_at=now()`,
+          [e.id, e.description.trim(), e.source.trim(), e.amount, e.date, e.category, e.status, e.notes, frequency, ['monthly','twice_monthly'].includes(frequency) ? e.payDay1 : null, frequency === 'twice_monthly' ? e.payDay2 : null, frequency === 'weekly' ? e.payWeekday : null, e.stage ?? (e.status === 'Received' ? 'received' : 'ready')]);
+        } else if (action === 'setIncomeStage') {
+          const {ids, stage} = req.body;
+          if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every(validId) || !['draft','ready','received'].includes(stage)) return send(400, {error:'Invalid income stage update.'});
+          await sql.query('UPDATE income SET stage=$2, status=$3, updated_at=now() WHERE id=ANY($1::uuid[])', [ids, stage, stage === 'received' ? 'Received' : 'Expected']);
         } else if (action === 'deleteIncome') {
           if (!validId(req.body.id)) return send(400, { error: 'Invalid income ID.' });
           await sql.query('DELETE FROM income WHERE id=$1', [req.body.id]);

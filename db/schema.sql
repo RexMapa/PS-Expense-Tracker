@@ -35,3 +35,4 @@ ALTER TABLE income ADD COLUMN IF NOT EXISTS pay_weekday SMALLINT CHECK (pay_week
 ALTER TABLE income DROP CONSTRAINT IF EXISTS income_frequency_check;
 ALTER TABLE income ADD CONSTRAINT income_frequency_check CHECK (frequency IN ('once','monthly','twice_monthly','daily','weekly'));
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'ready' CHECK (stage IN ('draft','ready','paid'));
+ALTER TABLE income ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'ready' CHECK (stage IN ('draft','ready','received'));

@@ -16,6 +16,7 @@ function addDays(key, count) { const date = new Date(key+'T12:00:00'); date.setD
 function weekStart(key) { const date = new Date(key+'T12:00:00'); return addDays(key,-((date.getDay()+6)%7)); }
 let data = [], income = [], budgets = {}, view = 'expenses', editing = null, editorKind = 'expenses', ready = false, busy = false;
 let expenseMode = 'week', expenseWeek = weekStart(today()), calendarDay = today(), calendarKind = 'all';
+let incomeMode = 'week', incomeWeek = weekStart(today());
 const filters = { expenses: { search: '', category: '', status: '' }, income: { search: '', category: '', status: '' } };
 $('#month').value = today().slice(0, 7);
 
@@ -72,7 +73,7 @@ function selected(kind = 'expenses') {
 function filtered() {
   const kind = view === 'income' ? 'income' : 'expenses';
   return selected(kind).filter(record => (!$('#category').value || record.category === $('#category').value)
-    && (!$('#status').value || record.status === $('#status').value)
+    && matchesPaymentStatus(record, kind === 'income', $('#status').value)
     && `${record.description} ${record.source || ''} ${record.notes || ''}`.toLowerCase().includes($('#search').value.toLowerCase()))
     .sort((a, b) => b.date.localeCompare(a.date));
 }
@@ -80,7 +81,7 @@ function setFilters() {
   if (!filters[view]) return;
   const isIncome = view === 'income', options = isIncome ? incomeCats : cats;
   $('#category').innerHTML = '<option value="">All ' + (isIncome ? 'types' : 'categories') + '</option>' + options.map(c => `<option>${c}</option>`).join('');
-  $('#status').innerHTML = '<option value="">All statuses</option>' + (isIncome ? ['Received', 'Expected'] : ['Paid', 'Pending']).map(c => `<option>${c}</option>`).join('');
+  $('#status').innerHTML = '<option value="">All statuses</option>' + paymentStages(isIncome).map(([value,label]) => `<option value="${value}">${label}</option>`).join('');
   $('#search').value = filters[view].search;
   $('#category').value = filters[view].category;
   $('#status').value = filters[view].status;
@@ -128,8 +129,8 @@ function renderBudgets(rows) {
   $('#budget-view').innerHTML = `<div class="charts"><article class="card"><div class="card-head"><div><h2>Budget vs actual spending</h2><p>Compare each monthly limit with recorded expenses</p></div></div><div class="budget-legend"><span>● Allocated</span><span>● Spent</span></div>${rows.map(row => `<div class="comparison"><div><span>${row.category}</span><small>${money(row.spent)} / ${money(row.limit)}</small></div><div class="comparison-track"><i style="width:${row.limit / max * 100}%"></i></div><div class="comparison-track spent"><i class="${row.limit && row.spent > row.limit ? 'over' : ''}" style="width:${row.spent / max * 100}%"></i></div></div>`).join('')}</article><article class="card"><div class="card-head"><div><h2>Budget health</h2><p>Monthly limits repeat each month</p></div></div>${rows.map(row => `<div class="health-row"><span>${row.category}</span><span class="badge ${row.limit && row.spent > row.limit ? 'pending' : ''}">${!row.limit ? 'No budget set' : row.spent > row.limit ? money(row.spent - row.limit) + ' over' : money(row.limit - row.spent) + ' left'}</span></div>`).join('')}<p class="budget-note">All expenses, including pending payments, count toward your budget.</p></article></div><article class="card"><div class="card-head"><div><h2>Manage monthly budgets</h2><p>Enter a category limit in Philippine pesos. Changes save automatically.</p></div></div><div class="budget-grid">${rows.map(row => `<div class="budget-item"><label>${row.category}<span>Monthly limit (₱)</span><input class="budget-edit" type="number" min="0" max="999999999" step="0.01" data-budget="${row.category}" aria-label="${row.category} monthly budget in pesos" value="${row.limit}" ${!ready || busy ? 'disabled' : ''}></label><progress value="${Math.min(row.spent, row.limit)}" max="${row.limit || 1}"></progress><small>${money(row.spent)} spent${row.limit ? ' · ' + Math.round(row.spent / row.limit * 100) + '% used' : ''}</small></div>`).join('')}</div></article>`;
 }
 function renderTable() {
-  const isIncome = view === 'income', rows = !isIncome && expenseMode === 'history' ? filtered().filter(r=>r.status === 'Paid') : filtered();
-  $('#table-title').textContent = isIncome ? 'Income records' : expenseMode === 'history' ? 'Paid expense history' : 'Expense records';
+  const isIncome = view === 'income', rows = isIncome && incomeMode === 'history' ? filtered().filter(r=>r.status === 'Received') : !isIncome && expenseMode === 'history' ? filtered().filter(r=>r.status === 'Paid') : filtered();
+  $('#table-title').textContent = isIncome ? 'Received income history' : expenseMode === 'history' ? 'Paid expense history' : 'Expense records';
   $('#table-copy').textContent = isIncome ? 'Track received and expected payments from every source' : 'All your expense records for the selected month';
   $('#record-heading').textContent = isIncome ? 'INCOME / SOURCE' : 'EXPENSE';
   $('#category-heading').textContent = isIncome ? 'TYPE' : 'CATEGORY';
@@ -150,11 +151,12 @@ function renderSidebar() {
     $('#context-nav').innerHTML = '<button data-budget-home="true" class="active">◷ <span>Monthly dashboard</span></button><div class="context-label">CATEGORY LIMITS</div>' + cats.map(c => `<button data-budget-focus="${c}"><span class="context-dot"></span><span>${c}</span></button>`).join('');
     return;
   }
-  const records = selected(isIncome ? 'income' : 'expenses'), category = $('#category').value, status = $('#status').value;
+  const start = isIncome ? incomeWeek : expenseWeek, end = addDays(start,6);
+  const records = (isIncome ? income : data).filter(r=>r.date>=start&&r.date<=end), category = $('#category').value, status = $('#status').value;
   const all = !category && !status;
-  const statuses = isIncome ? ['Received', 'Expected'] : ['Paid', 'Pending'];
+  const statuses = paymentStages(isIncome);
   $('#context-nav').innerHTML = `<button data-context-all="true" class="${all ? 'active' : ''}">≡ <span>All ${isIncome ? 'income' : 'expenses'}</span><em>${records.length}</em></button><div class="context-label">PAYMENT STATUS</div>`
-    + statuses.map(s => `<button data-context-status="${s}" class="${status === s ? 'active' : ''}"><span class="context-dot"></span><span>${s}</span><em>${records.filter(r => r.status === s).length}</em></button>`).join('')
+    + statuses.map(([value,label]) => `<button data-context-status="${value}" class="${status === value ? 'active' : ''}"><span class="context-dot"></span><span>${label}</span><em>${records.filter(r => matchesPaymentStatus(r,isIncome,value)).length}</em></button>`).join('')
     + `<div class="context-label">${isIncome ? 'INCOME TYPES' : 'EXPENSE CATEGORIES'}</div>`
     + (isIncome ? incomeCats : cats).map(c => `<button data-context-category="${c}" class="${category === c ? 'active' : ''}"><span class="context-dot"></span><span>${c}</span></button>`).join('');
 }
@@ -167,8 +169,8 @@ function contextAction(button) {
     return;
   }
   $('#search').value = '';
-  if (button.dataset.contextAll) { $('#category').value = ''; $('#status').value = ''; }
-  else if (button.dataset.contextStatus) { $('#category').value = ''; $('#status').value = button.dataset.contextStatus; }
+  if (button.dataset.contextAll) { $('#category').value = ''; $('#status').value = ''; if(view==='income')incomeMode='week';else if(view==='expenses')expenseMode='week'; }
+  else if (button.dataset.contextStatus) { $('#category').value = ''; $('#status').value = button.dataset.contextStatus; if(view==='income')incomeMode='week';else if(view==='expenses')expenseMode='week'; }
   else if (button.dataset.contextCategory) { $('#status').value = ''; $('#category').value = button.dataset.contextCategory; }
   render();
 }
@@ -176,7 +178,7 @@ function render() {
   const expenses = selected(), incomeRecords = selected('income'), total = sum(expenses);
   const pending = sum(expenses.filter(e => e.status === 'Pending'));
   const receivedRecords = incomeRecords.filter(e => e.status === 'Received'), received = sum(receivedRecords);
-  const expected = sum(incomeRecords.filter(e => e.status === 'Expected'));
+  const expected = sum(incomeRecords.filter(e => incomeStage(e) === 'ready'));
   const rows = budgetRows(), budget = rows.reduce((s, row) => s + row.limit, 0);
   const labels = { summary: 'Overview', expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' };
   $('#period-label').textContent = new Date($('#month').value + '-01T12:00:00').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
@@ -194,6 +196,7 @@ function render() {
   $('#summary-view').hidden = view !== 'summary';
   $('#income-schedule-view').hidden = view !== 'income';
   $('#expense-board-view').hidden = view !== 'expenses';
+  $('#income-board-view').hidden = view !== 'income';
   if (view === 'summary') {
     renderStats([['Received income', money(received), 'Confirmed payments this month', '↙'], ['Total expenses', money(total), 'Paid and pending expenses', '↗'], ['Cash balance', money(received - (total - pending)), 'Received income less paid expenses', '◈'], ['Budget remaining', budget ? money(budget - total) : 'Not set', 'Monthly budget less all expenses', '◷']]);
     renderSummary();
@@ -206,7 +209,8 @@ function render() {
     receivedRecords.forEach(e => { const key = e.source.trim().toLowerCase(), previous = sources.get(key); sources.set(key, { label: previous?.label || e.source.trim(), amount: (previous?.amount || 0) + e.amount }); });
     let breakdown = [...sources.values()].sort((a, b) => b.amount - a.amount).map(s => [s.label, s.amount]);
     if (breakdown.length > 5) breakdown = [...breakdown.slice(0, 4), ['Other sources', breakdown.slice(4).reduce((s, r) => s + r[1], 0)]];
-    renderActivity(receivedRecords, breakdown, received, true); renderTable(); renderIncomeSchedules();
+    renderActivity(receivedRecords, breakdown, received, true); renderTable(); renderIncomeSchedules(); renderIncomeBoard();
+    $('#transaction-view').hidden = incomeMode !== 'history';
   } else {
     renderStats([['Total expenses', money(total), 'Recorded this month', '↗'], ['Paid expenses', money(total - pending), 'Payments completed', '✓'], ['Pending payments', money(pending), 'Payments awaiting completion', '◷'], ['Largest category', total ? cats[cats.map(c => sum(expenses.filter(e => e.category === c))).indexOf(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c)))))] : '—', total ? money(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c))))) + ' this month' : 'No spending recorded', '◈']]);
     renderActivity(expenses, cats.map(c => [c, sum(expenses.filter(e => e.category === c))]), total, false); renderTable();
@@ -216,9 +220,12 @@ function render() {
   renderCalendar();
 }
 function expenseStage(record) { return record.status === 'Paid' ? 'paid' : record.stage === 'draft' ? 'draft' : 'ready'; }
+function incomeStage(record) { return record.status === 'Received' ? 'received' : record.stage === 'draft' ? 'draft' : 'ready'; }
+function paymentStages(isIncome) { return isIncome ? [['draft','To save'],['ready','Ready to receive'],['received','Received']] : [['draft','To save'],['ready','Ready to pay'],['paid','Paid']]; }
+function matchesPaymentStatus(record,isIncome,status) { return !status || (['draft','ready','paid','received'].includes(status) ? (isIncome?incomeStage(record):expenseStage(record))===status : record.status===status); }
 function expenseBoardRecords() {
   const end = addDays(expenseWeek,6), search = $('#search').value.toLowerCase();
-  return data.filter(r=>r.date >= expenseWeek && r.date <= end && (!$('#category').value || r.category === $('#category').value) && (!$('#status').value || r.status === $('#status').value) && `${r.description} ${r.notes || ''}`.toLowerCase().includes(search)).sort((a,b)=>a.date.localeCompare(b.date));
+  return data.filter(r=>r.date >= expenseWeek && r.date <= end && (!$('#category').value || r.category === $('#category').value) && matchesPaymentStatus(r,false,$('#status').value) && `${r.description} ${r.notes || ''}`.toLowerCase().includes(search)).sort((a,b)=>a.date.localeCompare(b.date));
 }
 function expenseCard(r) {
   const stage = expenseStage(r), late = r.status !== 'Paid' && r.date < today();
@@ -228,12 +235,24 @@ function renderExpenseBoard() {
   const records = expenseBoardRecords(), grouped = {draft:records.filter(r=>expenseStage(r)==='draft'),ready:records.filter(r=>expenseStage(r)==='ready'),paid:records.filter(r=>expenseStage(r)==='paid')};
   $('#expense-board-view').innerHTML = `<div class="expense-board-heading"><div><h2>Expense records</h2><p>Review, save and track payments. Dates below show when each expense is due.</p></div><div class="record-tabs"><button data-expense-mode="week" class="${expenseMode==='week'?'active':''}">Weekly expenses</button><button data-expense-mode="history" class="${expenseMode==='history'?'active':''}">History</button></div></div>${expenseMode==='week'?`<div class="expense-week-toolbar"><button data-expense-week="-1" aria-label="Previous expense week">‹</button><b>${dateText(expenseWeek)} – ${dateText(addDays(expenseWeek,6))}</b><button data-expense-week="1" aria-label="Next expense week">›</button><button data-expense-today="true">This week</button><button data-board-export="true">↓ Export CSV</button></div><div class="payroll-summary">${[['Total expenses',money(sum(records))],['To save',money(sum(grouped.draft))],['Ready to pay',money(sum(grouped.ready))],['Paid',money(sum(grouped.paid))],['Awaiting payment',String(grouped.draft.length+grouped.ready.length)],['Paid records',`${grouped.paid.length} of ${records.length}`]].map(([label,value],i)=>`<div><small>${label}</small><strong class="${i===0?'accent-text':''}">${value}</strong></div>`).join('')}</div><div class="expense-board-columns">${[['draft','To save','Review each expense, then save it.','No expenses to save.'],['ready','Ready to pay','Saved and waiting for payment.','Nothing waiting to be paid.'],['paid','Paid','Marked paid this week. Undo moves it back.','No expenses marked paid yet.']].map(([stage,label,copy,empty])=>`<section class="expense-stage ${stage}"><div class="expense-stage-head"><div><h3><i></i>${label}<span>${grouped[stage].length}</span></h3><p>${copy}</p></div><div><small>Total</small><strong>${money(sum(grouped[stage]))}</strong></div></div>${stage==='draft'&&grouped.draft.length?`<button class="primary save-all" data-save-all="true" ${!ready||busy?'disabled':''}>▣ Save all ${grouped.draft.length}</button>`:''}${grouped[stage].length?grouped[stage].map(expenseCard).join(''):`<div class="stage-empty">${empty}</div>`}</section>`).join('')}</div>`:''}`;
 }
+function incomeBoardRecords() {
+  const end=addDays(incomeWeek,6),search=$('#search').value.toLowerCase();
+  return income.filter(r=>r.date>=incomeWeek&&r.date<=end&&(!$('#category').value||r.category===$('#category').value)&&matchesPaymentStatus(r,true,$('#status').value)&&`${r.description} ${r.source} ${r.notes||''}`.toLowerCase().includes(search)).sort((a,b)=>a.date.localeCompare(b.date));
+}
+function incomeCard(r) {
+  const stage=incomeStage(r),label=paymentStages(true).find(([value])=>value===stage)[1];
+  return `<article class="expense-pay-card"><div class="pay-card-head"><div><h3>${esc(r.source)}</h3><small>${esc(r.description)} · ${esc(scheduleLabel(r))}</small></div><div><small>Income amount</small><strong>${money(r.amount)}</strong></div></div><div class="pay-card-metrics"><div><small>Income type</small><b>${esc(r.category)}</b></div><div><small>Payment date</small><b>${dateText(r.date)}</b></div><div><small>Status</small><b>${label}</b></div></div><div class="pay-card-actions"><details><summary>⌄ Details</summary><p>${esc(r.notes||'No notes added.')}</p><button class="row-action" data-edit="${esc(r.id)}">Edit</button><button class="row-action" data-delete="${esc(r.id)}">Delete</button></details><button class="row-action" data-income-download="${esc(r.id)}" aria-label="Download income from ${esc(r.source)}">↓</button><button class="${stage==='received'?'':'primary'}" data-income-stage="${stage==='draft'?'ready':stage==='ready'?'received':'ready'}" data-income-id="${esc(r.id)}" ${!ready||busy?'disabled':''}>${stage==='draft'?'▣ Save':stage==='ready'?'✓ Mark received':'Undo'}</button></div></article>`;
+}
+function renderIncomeBoard() {
+  const records=incomeBoardRecords(),grouped={draft:records.filter(r=>incomeStage(r)==='draft'),ready:records.filter(r=>incomeStage(r)==='ready'),received:records.filter(r=>incomeStage(r)==='received')};
+  $('#income-board-view').innerHTML=`<div class="expense-board-heading"><div><h2>Income records</h2><p>Review income, save expected payments and record money received.</p></div><div class="record-tabs"><button data-income-mode="week" class="${incomeMode==='week'?'active':''}">Weekly income</button><button data-income-mode="history" class="${incomeMode==='history'?'active':''}">History</button></div></div>${incomeMode==='week'?`<div class="expense-week-toolbar"><button data-income-week="-1" aria-label="Previous income week">‹</button><b>${dateText(incomeWeek)} – ${dateText(addDays(incomeWeek,6))}</b><button data-income-week="1" aria-label="Next income week">›</button><button data-income-today="true">This week</button><button data-income-board-export="true">↓ Export CSV</button></div><div class="payroll-summary">${[['Total income',money(sum(records))],['To save',money(sum(grouped.draft))],['Ready to receive',money(sum(grouped.ready))],['Received',money(sum(grouped.received))],['Awaiting receipt',String(grouped.draft.length+grouped.ready.length)],['Received records',`${grouped.received.length} of ${records.length}`]].map(([label,value],i)=>`<div><small>${label}</small><strong class="${i===0?'accent-text':''}">${value}</strong></div>`).join('')}</div><div class="expense-board-columns income-board-columns">${[['draft','To save','Review each income record, then save it.','No income records to save.'],['ready','Ready to receive','Saved and waiting for the payment.','No payments awaiting receipt.'],['received','Received','Money received. Undo returns it to Ready to receive.','No income marked received yet.']].map(([stage,label,copy,empty])=>`<section class="expense-stage ${stage==='received'?'paid':stage}"><div class="expense-stage-head"><div><h3><i></i>${label}<span>${grouped[stage].length}</span></h3><p>${copy}</p></div><div><small>Total</small><strong>${money(sum(grouped[stage]))}</strong></div></div>${stage==='draft'&&grouped.draft.length?`<button class="primary save-all" data-income-save-all="true" ${!ready||busy?'disabled':''}>▣ Save all ${grouped.draft.length}</button>`:''}${grouped[stage].length?grouped[stage].map(incomeCard).join(''):`<div class="stage-empty">${empty}</div>`}</section>`).join('')}</div>`:''}`;
+}
 function calendarEvents(month) {
   const events = data.filter(r=>r.date.startsWith(month)).map(r=>({date:r.date,kind:'expense',label:r.description,amount:r.amount,status:r.status==='Paid'?'Paid':expenseStage(r)==='draft'?'Draft · due':'Due',record:r}));
-  income.filter(r=>r.date.startsWith(month)).forEach(r=>events.push({date:r.date,kind:'income',label:r.source+' · '+r.description,amount:r.amount,status:r.status,record:r}));
+  income.filter(r=>r.date.startsWith(month)).forEach(r=>events.push({date:r.date,kind:'income',label:r.source+' · '+r.description,amount:r.amount,status:incomeStage(r)==='draft'?'To save':r.status,record:r}));
   const key = (r,date)=>`${r.source.trim().toLowerCase()}|${date}|${r.amount}`;
-  const recorded = new Set(income.map(r=>key(r,r.date))), projected = new Set();
-  income.forEach(r=>scheduleDates(r,month).forEach(date=>{
+  const recorded = new Set(income.filter(r=>incomeStage(r)!=='draft').map(r=>key(r,r.date))), projected = new Set();
+  income.filter(r=>incomeStage(r)!=='draft').forEach(r=>scheduleDates(r,month).forEach(date=>{
     const k=key(r,date);if(recorded.has(k)||projected.has(k))return;projected.add(k);
     events.push({date,kind:'income',label:r.source+' · scheduled',amount:r.amount,status:'Scheduled',record:r});
   }));
@@ -247,7 +266,7 @@ function renderCalendar() {
 }
 function changeCalendarMonth(delta) {
   const [year,month]=$('#month').value.split('-').map(Number),date=new Date(year,month-1+delta,1,12);
-  $('#month').value=dateKey(date).slice(0,7);calendarDay=$('#month').value+'-01';expenseWeek=weekStart(calendarDay);render();
+  $('#month').value=dateKey(date).slice(0,7);calendarDay=$('#month').value+'-01';expenseWeek=weekStart(calendarDay);incomeWeek=expenseWeek;render();
 }
 function downloadCSV(rows,filename) {
   const csv=rows.map(row=>row.map(v=>'"'+String(v).replace(/^[=+@\-]/,"'$&").replace(/"/g,'""')+'"').join(',')).join('\r\n');
@@ -256,7 +275,7 @@ function downloadCSV(rows,filename) {
 function summaryAnalytics() {
   const expenses = selected(), incomes = selected('income');
   const total = sum(expenses), paid = sum(expenses.filter(r => r.status === 'Paid'));
-  const received = sum(incomes.filter(r => r.status === 'Received')), expected = sum(incomes.filter(r => r.status === 'Expected'));
+  const received = sum(incomes.filter(r => r.status === 'Received')), expected = sum(incomes.filter(r => incomeStage(r) === 'ready'));
   const budget = cats.reduce((s, c) => s + (Number(budgets[c]) || 0), 0);
   const [year, month] = $('#month').value.split('-').map(Number);
   const months = Array.from({ length: 6 }, (_, i) => {
@@ -306,7 +325,7 @@ function renderSummary() {
         <div class="summary-upcoming"><h2>Upcoming & unpaid</h2><div><span>Expected income</span><b>${money(a.expected)}</b></div><div><span>Pending expenses</span><b>${money(a.pending)}</b></div><small>These amounts are excluded from cash-flow and savings-rate calculations.</small></div>
       </article>
     </div>
-    <article class="card" id="summary-activity"><div class="card-head"><div><h2>Recent financial activity</h2><p>Latest eight income and expense records in ${esc(month)}</p></div></div><div class="table-scroll"><table><thead><tr><th>RECORD</th><th>TYPE</th><th>DATE</th><th>STATUS</th><th class="amount">AMOUNT (PHP)</th></tr></thead><tbody>${recent.length ? recent.map(r => `<tr><td>${esc(r.description)}${r.kind === 'income' ? '<small>' + esc(r.source) + '</small>' : ''}</td><td>${r.kind === 'income' ? 'Income' : 'Expense'}</td><td>${dateText(r.date)}</td><td><span class="badge ${['Expected','Pending'].includes(r.status) ? 'pending' : ''}">${esc(r.status)}</span></td><td class="amount ${r.kind === 'income' ? 'positive' : ''}">${r.kind === 'income' ? '+' : '−'}${money(r.amount)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No activity this month. Open Expenses or Income to add records.</td></tr>'}</tbody></table></div></article>`;
+    <article class="card" id="summary-activity"><div class="card-head"><div><h2>Recent financial activity</h2><p>Latest eight income and expense records in ${esc(month)}</p></div></div><div class="table-scroll"><table><thead><tr><th>RECORD</th><th>TYPE</th><th>DATE</th><th>STATUS</th><th class="amount">AMOUNT (PHP)</th></tr></thead><tbody>${recent.length ? recent.map(r => `<tr><td>${esc(r.description)}${r.kind === 'income' ? '<small>' + esc(r.source) + '</small>' : ''}</td><td>${r.kind === 'income' ? 'Income' : 'Expense'}</td><td>${dateText(r.date)}</td><td><span class="badge ${['Expected','Pending'].includes(r.status) ? 'pending' : ''}">${esc(paymentStages(r.kind === 'income').find(([value])=>value === (r.kind === 'income' ? incomeStage(r) : expenseStage(r)))[1])}</span></td><td class="amount ${r.kind === 'income' ? 'positive' : ''}">${r.kind === 'income' ? '+' : '−'}${money(r.amount)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No activity this month. Open Expenses or Income to add records.</td></tr>'}</tbody></table></div></article>`;
 }
 function scheduleLabel(record) {
   const frequency = record.frequency || 'once';
@@ -323,7 +342,7 @@ function scheduleDates(record, month) {
   return [...new Set(days.filter(d => Number.isInteger(d) && d >= 1 && d <= 31).map(day => `${month}-${String(Math.min(day,lastDay)).padStart(2,'0')}`))].sort().filter(date => date >= record.date);
 }
 function renderIncomeSchedules() {
-  const month = $('#month').value, recurring = income.filter(r => r.frequency && r.frequency !== 'once');
+  const month = $('#month').value, recurring = income.filter(r => r.frequency && r.frequency !== 'once' && incomeStage(r) !== 'draft');
   const entries = recurring.flatMap(record => scheduleDates(record,month).map(date => ({record,date})));
   const upcoming = entries.filter(e => e.date >= today() && !(e.record.status === 'Received' && e.record.date === e.date)).sort((a,b) => a.date.localeCompare(b.date)).slice(0,8);
   $('#income-schedule-view').innerHTML = `<article class="card income-schedules"><div class="card-head"><div><h2>Income payment schedules</h2><p>Planned paydays for the selected month · amounts are per payment</p></div><span class="badge">${entries.length} planned paydays</span></div><div class="schedule-totals"><div><small>Planned income this month</small><strong>${money(entries.reduce((s,e) => s+e.record.amount,0))}</strong></div><p>Schedules are forecasts. They do not create received payments or change your cash balance. Record each actual payment separately with “One-time payment”.</p></div><div class="schedule-columns"><div><h3>Recurring income</h3>${recurring.length ? recurring.map(r => `<div class="schedule-item"><div><b>${esc(r.source)}</b><small>${esc(r.description)} · ${esc(scheduleLabel(r))}</small><small>Starts ${dateText(r.date)} · ${money(r.amount)} per payday</small></div><button class="row-action" data-edit-schedule="${esc(r.id)}" aria-label="Edit schedule for ${esc(r.source)}">Edit</button></div>`).join('') : '<p class="empty">Add income and choose a payment schedule to see it here.</p>'}</div><div><h3>Upcoming paydays this month</h3>${upcoming.length ? upcoming.map(e => `<div class="schedule-item"><div><b>${esc(e.record.source)}</b><small>${dateText(e.date)}</small></div><strong>${money(e.record.amount)}</strong></div>`).join('') : '<p class="empty">No upcoming scheduled payments in this month.</p>'}</div></div></article>`;
@@ -345,7 +364,7 @@ function openEditor(id) {
   form.elements.description.placeholder = isIncome ? 'e.g. October salary or client payment' : 'e.g. Monthly software subscription';
   form.elements.date.value = today();
   form.elements.category.innerHTML = (isIncome ? incomeCats : cats).map(c => `<option>${c}</option>`).join('');
-  form.elements.status.innerHTML = isIncome ? ['Received','Expected'].map(c=>`<option>${c}</option>`).join('') : '<option value="draft">To save</option><option value="ready">Ready to pay</option><option value="paid">Paid</option>';
+  form.elements.status.innerHTML = paymentStages(isIncome).map(([value,label])=>`<option value="${value}">${label}</option>`).join('');
   $('#source-field').hidden = !isIncome; form.elements.source.required = isIncome;
   form.elements.frequency.value = 'once';
   form.elements.payDay1.value = ''; form.elements.payDay2.value = '';
@@ -357,7 +376,7 @@ function openEditor(id) {
     form.elements.frequency.value = record.frequency || 'once';
     form.elements.payDay1.value = record.payDay1 || ''; form.elements.payDay2.value = record.payDay2 || '';
     form.elements.payWeekday.value = record.payWeekday ?? '';
-    if (!isIncome) form.elements.status.value = expenseStage(record);
+    form.elements.status.value = isIncome ? incomeStage(record) : expenseStage(record);
   }
   toggleScheduleForm();
   $('#modal-title').textContent = `${id ? 'Edit' : 'Add'} ${isIncome ? 'income' : 'expense'}`;
@@ -369,8 +388,7 @@ $('#editor').addEventListener('cancel', e => { if (busy) e.preventDefault(); });
 $('#expense-form').onsubmit = async e => {
   e.preventDefault(); if (!ready || busy) return;
   const form = e.target, amount = Number(form.elements.amount.value), isIncome = editorKind === 'income';
-  const item = { id: editing || crypto.randomUUID(), description: form.elements.description.value.trim(), amount, date: form.elements.date.value, category: form.elements.category.value, status: isIncome ? form.elements.status.value : form.elements.status.value === 'paid' ? 'Paid' : 'Pending', notes: form.elements.notes.value.trim() };
-  if (!isIncome) item.stage = form.elements.status.value;
+  const item = { id: editing || crypto.randomUUID(), description: form.elements.description.value.trim(), amount, date: form.elements.date.value, category: form.elements.category.value, status: isIncome ? form.elements.status.value === 'received' ? 'Received' : 'Expected' : form.elements.status.value === 'paid' ? 'Paid' : 'Pending', notes: form.elements.notes.value.trim(), stage:form.elements.status.value };
   if (isIncome) {
     item.source = form.elements.source.value.trim(); item.frequency = form.elements.frequency.value;
     item.payDay1 = ['monthly','twice_monthly'].includes(item.frequency) ? Number(form.elements.payDay1.value) : null;
@@ -382,11 +400,22 @@ $('#expense-form').onsubmit = async e => {
   const button = $('#save-record'); button.disabled = true;
   try {
     if (await mutate(isIncome ? 'saveIncome' : 'saveExpense', { [isIncome ? 'income' : 'expense']: item })) {
-      $('#month').value = item.date.slice(0, 7); if (!isIncome) expenseWeek = weekStart(item.date); $('#editor').close(); render(); notify(`${isIncome ? 'Income' : 'Expense'} ${editing ? 'updated' : 'added'}`);
+      $('#month').value = item.date.slice(0, 7); if (!isIncome) expenseWeek = weekStart(item.date);else incomeWeek=weekStart(item.date); $('#editor').close(); render(); notify(`${isIncome ? 'Income' : 'Expense'} ${editing ? 'updated' : 'added'}`);
     }
   } finally { button.disabled = false; }
 };
 document.addEventListener('click', async e => {
+  const incomeModeButton=e.target.closest('[data-income-mode]'),incomeWeekButton=e.target.closest('[data-income-week]'),incomeToday=e.target.closest('[data-income-today]');
+  if(incomeModeButton&&!busy){incomeMode=incomeModeButton.dataset.incomeMode;$('#status').value='';render();}
+  if((incomeWeekButton||incomeToday)&&!busy){incomeWeek=incomeToday?weekStart(today()):addDays(incomeWeek,Number(incomeWeekButton.dataset.incomeWeek)*7);$('#month').value=addDays(incomeWeek,3).slice(0,7);render();}
+  const incomeStageButton=e.target.closest('[data-income-stage]'),incomeSaveAll=e.target.closest('[data-income-save-all]');
+  if((incomeStageButton||incomeSaveAll)&&ready&&!busy){
+    const ids=incomeSaveAll?incomeBoardRecords().filter(r=>incomeStage(r)==='draft').map(r=>r.id):[incomeStageButton.dataset.incomeId],target=incomeSaveAll?'ready':incomeStageButton.dataset.incomeStage;
+    let success=true;for(let i=0;i<ids.length;i+=500){if(!await mutate('setIncomeStage',{ids:ids.slice(i,i+500),stage:target})){success=false;break;}}
+    if(success&&ids.length)notify(target==='received'?'Income marked received':'Income saved and ready to receive');
+  }
+  const singleIncomeExport=e.target.closest('[data-income-download]'),incomeBoardExport=e.target.closest('[data-income-board-export]');
+  if((singleIncomeExport||incomeBoardExport)&&ready){const records=singleIncomeExport?income.filter(r=>r.id===singleIncomeExport.dataset.incomeDownload):incomeBoardRecords();downloadCSV([['Source','Income','Amount (PHP)','Payment date','Stage','Schedule','Notes'],...records.map(r=>[r.source,r.description,r.amount,r.date,incomeStage(r),scheduleLabel(r),r.notes||''])],`PrimeSphere-income-${incomeWeek}-PHP.csv`);}
   const mode=e.target.closest('[data-expense-mode]'),week=e.target.closest('[data-expense-week]'),thisWeek=e.target.closest('[data-expense-today]');
   if(mode&&!busy){expenseMode=mode.dataset.expenseMode;$('#status').value='';render();}
   if((week||thisWeek)&&!busy){expenseWeek=thisWeek?weekStart(today()):addDays(expenseWeek,Number(week.dataset.expenseWeek)*7);$('#month').value=addDays(expenseWeek,3).slice(0,7);render();}
@@ -400,7 +429,7 @@ document.addEventListener('click', async e => {
   if((singleExport||boardExport)&&ready){const records=singleExport?data.filter(r=>r.id===singleExport.dataset.expenseDownload):expenseBoardRecords();downloadCSV([['Expense','Amount (PHP)','Due date','Category','Stage','Notes'],...records.map(r=>[r.description,r.amount,r.date,r.category,expenseStage(r),r.notes||''])],`PrimeSphere-expenses-${expenseWeek}-PHP.csv`);}
   const calendarMonth=e.target.closest('[data-calendar-month]'),calendarToday=e.target.closest('[data-calendar-today]'),calendarDate=e.target.closest('[data-calendar-day]'),calendarFilter=e.target.closest('[data-calendar-kind]');
   if(calendarMonth)changeCalendarMonth(Number(calendarMonth.dataset.calendarMonth));
-  if(calendarToday){$('#month').value=today().slice(0,7);calendarDay=today();expenseWeek=weekStart(today());render();}
+  if(calendarToday){$('#month').value=today().slice(0,7);calendarDay=today();expenseWeek=weekStart(today());incomeWeek=expenseWeek;render();}
   if(calendarDate){calendarDay=calendarDate.dataset.calendarDay;renderCalendar();}
   if(calendarFilter){calendarKind=calendarFilter.dataset.calendarKind;renderCalendar();}
   if(e.target.closest('[data-open-calendar]'))$('#finance-calendar').scrollIntoView({behavior:'smooth',block:'start'});
@@ -426,7 +455,7 @@ document.addEventListener('change', async e => {
   const saved = await mutate('saveBudget', { category: input.dataset.budget, amount: n });
   render(); if (saved) notify('Monthly budget saved');
 });
-for (const selector of ['#month', '#category', '#status']) $(selector).onchange = () => { if ($('#month').value) { if(selector==='#month'){expenseWeek=weekStart($('#month').value+'-01');calendarDay=$('#month').value+'-01';} render(); } };
+for (const selector of ['#month', '#category', '#status']) $(selector).onchange = () => { if ($('#month').value) { if(selector==='#month'){expenseWeek=weekStart($('#month').value+'-01');incomeWeek=expenseWeek;calendarDay=$('#month').value+'-01';} render(); } };
 $('#search').oninput = render;
 $('#expense-form [name="frequency"]').onchange = toggleScheduleForm;
 function exportRows() {
@@ -436,8 +465,8 @@ function exportRows() {
   }
   if (view === 'budgets') return [['Category', 'Budget (PHP)', 'Spent (PHP)', 'Remaining (PHP)', 'Month'], ...budgetRows().map(r => [r.category, r.limit, r.spent, r.limit - r.spent, $('#month').value])];
   const isIncome = view === 'income';
-  const records=isIncome?filtered():expenseMode==='week'?expenseBoardRecords():filtered().filter(r=>r.status==='Paid');
-  return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', isIncome?'Date':'Due date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes', ...(isIncome ? ['Frequency','Payday 1','Payday 2','Weekday'] : ['Stage'])], ...records.map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || '', ...(isIncome ? [r.frequency || 'once',r.payDay1 || '',r.payDay2 || '',r.frequency==='weekly'?weekdays[r.payWeekday]:''] : [expenseStage(r)])])];
+  const records=isIncome?incomeMode==='week'?incomeBoardRecords():filtered().filter(r=>r.status==='Received'):expenseMode==='week'?expenseBoardRecords():filtered().filter(r=>r.status==='Paid');
+  return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', isIncome?'Date':'Due date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes', ...(isIncome ? ['Frequency','Payday 1','Payday 2','Weekday','Stage'] : ['Stage'])], ...records.map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || '', ...(isIncome ? [r.frequency || 'once',r.payDay1 || '',r.payDay2 || '',r.frequency==='weekly'?weekdays[r.payWeekday]:'',incomeStage(r)] : [expenseStage(r)])])];
 }
 $('#export').onclick = () => {
   if (!ready) return;

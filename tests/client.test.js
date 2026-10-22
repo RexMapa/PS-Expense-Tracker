@@ -37,7 +37,7 @@ test('income search and monthly filtering never mix with expense records',async(
   const{context,element}=browser(async()=>({ok:true,json:async()=>dashboardState}));await vm.runInContext('load()',context);element('#month').value='2026-10';vm.runInContext("switchView('income')",context);element('#search').value='client';vm.runInContext('render()',context);assert.match(element('#rows').innerHTML,/Design project/);assert.ok(!element('#rows').innerHTML.includes('October salary'));element('#month').value='2026-11';vm.runInContext('render()',context);assert.match(element('#rows').innerHTML,/No income found/);
 });
 test('all three exports label Philippine pesos and export the current tab',async()=>{
-  const{context,element}=browser(async()=>({ok:true,json:async()=>dashboardState}));await vm.runInContext('load()',context);element('#month').value='2026-10';assert.ok(vm.runInContext('exportRows()[0].includes("Amount (PHP)")',context));vm.runInContext("switchView('income')",context);assert.equal(vm.runInContext('exportRows()[1][1]',context),'Client');assert.ok(vm.runInContext('exportRows()[0].includes("Amount (PHP)")',context));vm.runInContext("switchView('budgets')",context);assert.ok(vm.runInContext('exportRows()[0].includes("Budget (PHP)")',context));
+  const{context,element}=browser(async()=>({ok:true,json:async()=>dashboardState}));await vm.runInContext('load()',context);element('#month').value='2026-10';assert.ok(vm.runInContext('exportRows()[0].includes("Amount (PHP)")',context));vm.runInContext("switchView('income')",context);assert.equal(vm.runInContext('exportRows()[1][1]',context),'Employer');assert.ok(vm.runInContext('exportRows()[0].includes("Amount (PHP)")',context));vm.runInContext("switchView('budgets')",context);assert.ok(vm.runInContext('exportRows()[0].includes("Budget (PHP)")',context));
   assert.ok(!code.includes('USD'));assert.ok(!readFileSync(new URL('../dist/index.html',import.meta.url),'utf8').includes('USD'));
 });
 test('rail tabs have separate contextual controls and filters',async()=>{
@@ -102,4 +102,20 @@ test('expense board follows portal stages and separates paid history',async()=>{
 test('expense stage buttons are enabled again after a save completes',async()=>{
   const state={...dashboardState,expenses:[{...dashboardState.expenses[1],stage:'ready'}]};const{context,element}=browser(async()=>({ok:true,json:async()=>state}));await vm.runInContext('load()',context);element('#month').value='2026-10';vm.runInContext("expenseWeek='2026-10-19';switchView('expenses')",context);
   await vm.runInContext("mutate('setExpenseStage',{ids:['expense-2'],stage:'ready'})",context);const board=element('#expense-board-view').innerHTML;assert.match(board,/Mark paid/);assert.ok(!board.includes('disabled'));assert.equal(vm.runInContext('busy',context),false);
+});
+test('expense sidebar has exactly the three board stages and filters drafts separately from ready',async()=>{
+  const state={...dashboardState,expenses:[{...dashboardState.expenses[0],status:'Pending',stage:'draft'},{...dashboardState.expenses[1],stage:'ready'},{...dashboardState.expenses[0],id:'paid',description:'Completed expense',stage:'ready'}]};
+  const{context,element}=browser(async()=>({ok:true,json:async()=>state}));await vm.runInContext('load()',context);vm.runInContext("expenseWeek='2026-10-19';switchView('expenses')",context);
+  const sidebar=element('#context-nav').innerHTML;assert.equal((sidebar.match(/data-context-status=/g)||[]).length,3);for(const text of ['To save','Ready to pay','Paid'])assert.ok(sidebar.includes(text));assert.ok(!sidebar.includes('>Pending<'));
+  vm.runInContext("contextAction({dataset:{contextStatus:'draft'}})",context);assert.equal(vm.runInContext('expenseBoardRecords().length',context),1);assert.equal(vm.runInContext('expenseBoardRecords()[0].stage',context),'draft');
+  vm.runInContext("contextAction({dataset:{contextStatus:'ready'}})",context);assert.equal(vm.runInContext('expenseBoardRecords().length',context),1);assert.equal(vm.runInContext('expenseBoardRecords()[0].description',context),'Pending ads');
+});
+test('income board, sidebar, filters, exports and history share three stages',async()=>{
+  const base={...dashboardState.income[0],status:'Expected',frequency:'once',date:'2026-10-22'};
+  const state={...dashboardState,income:[{...base,id:'draft',description:'Draft income',stage:'draft'},{...base,id:'ready',description:'Expected income',stage:'ready'},{...base,id:'received',description:'Completed income',status:'Received',stage:'ready'}]};
+  const{context,element}=browser(async()=>({ok:true,json:async()=>state}));await vm.runInContext('load()',context);element('#month').value='2026-10';vm.runInContext("incomeWeek='2026-10-19';switchView('income')",context);
+  assert.equal(element('#income-board-view').hidden,false);assert.equal(element('#transaction-view').hidden,true);for(const text of ['To save','Ready to receive','Received','Save all 1','Mark received','Undo'])assert.ok(element('#income-board-view').innerHTML.includes(text));assert.equal((element('#context-nav').innerHTML.match(/data-context-status=/g)||[]).length,3);
+  assert.equal(vm.runInContext('summaryAnalytics().expected',context),20000);assert.equal(vm.runInContext('summaryAnalytics().received',context),20000);
+  for(const stage of ['draft','ready','received']){vm.runInContext(`contextAction({dataset:{contextStatus:'${stage}'}})`,context);assert.equal(vm.runInContext('incomeBoardRecords().length',context),1);assert.equal(vm.runInContext('exportRows().length',context),2)}
+  vm.runInContext("contextAction({dataset:{contextAll:true}});incomeMode='history';render()",context);assert.equal(element('#transaction-view').hidden,false);assert.match(element('#rows').innerHTML,/Completed income/);assert.ok(!element('#rows').innerHTML.includes('Draft income'));
 });

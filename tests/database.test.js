@@ -47,6 +47,9 @@ test('existing income tables receive non-destructive schedule columns automatica
   let statements;const sql={query(statement){return statement.startsWith('SELECT to_regclass')?Promise.resolve([{expenses:'expenses',budgets:'budgets',income:'income',schedule_ready:false}]):{statement}},async transaction(items){statements=items}};
   await ensureSchema(sql);for(const column of ['frequency','pay_day_1','pay_day_2'])assert.ok(statements.some(item=>item.statement.startsWith('ALTER TABLE income ADD COLUMN IF NOT EXISTS '+column)));
 });
+test('income stage migration preserves existing records and defaults to ready',()=>{
+  assert.ok(schemaStatements.some(s=>s.startsWith("ALTER TABLE income ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'ready'")));
+});
 
 test('connection string accepts copied quotes and whitespace but rejects shell commands', () => {
   const url = 'postgresql://user:password@db.example/database?sslmode=require';
