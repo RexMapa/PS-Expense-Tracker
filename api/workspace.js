@@ -1,5 +1,6 @@
 import { configured, validPassword, authenticated, sessionCookie, clearCookie } from '../lib/auth.js';
-import { categories, validId, validAmount, validateExpense } from '../lib/validation.js';
+import { categories, validId, validAmount, validateExpense, validateIncome } from '../lib/validation.js';
+import { databaseFailure } from '../lib/database-errors.js';
 
 export function createHandler({ env = process.env, getDatabase, readState } = {}) {
   return async function handler(req, res) {
@@ -37,18 +38,31 @@ export function createHandler({ env = process.env, getDatabase, readState } = {}
         } else if (action === 'deleteExpense') {
           if (!validId(req.body.id)) return send(400, { error: 'Invalid expense ID.' });
           await sql.query('DELETE FROM expenses WHERE id=$1', [req.body.id]);
+        } else if (action === 'saveIncome') {
+          const e = req.body.income;
+          if (!validateIncome(e)) return send(400, { error: 'Check the income source, date and peso amount (up to two decimal places).' });
+          await sql.query(`INSERT INTO income (id, description, source, amount, date, category, status, notes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, source=EXCLUDED.source, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, updated_at=now()`,
+          [e.id, e.description.trim(), e.source.trim(), e.amount, e.date, e.category, e.status, e.notes]);
+        } else if (action === 'deleteIncome') {
+          if (!validId(req.body.id)) return send(400, { error: 'Invalid income ID.' });
+          await sql.query('DELETE FROM income WHERE id=$1', [req.body.id]);
         } else if (action === 'saveBudget') {
           if (!categories.includes(req.body.category) || !validAmount(req.body.amount, true)) return send(400, { error: 'Enter a valid budget with up to two decimal places.' });
           await sql.query('INSERT INTO budgets (category, amount) VALUES ($1,$2) ON CONFLICT (category) DO UPDATE SET amount=EXCLUDED.amount, updated_at=now()', [req.body.category, req.body.amount]);
         } else return send(400, { error: 'Unknown action.' });
       }
       return send(200, await readState(sql));
-    } catch {
-      return send(503, { error: 'Database unavailable. Check DATABASE_URL and run the database setup, then retry.' });
+    } catch (error) {
+      const failure = databaseFailure(error);
+      // Only a known diagnostic code is logged. Never log credentials or raw SQL errors.
+      console.error('[PrimeSphere database]', failure.code);
+      return send(503, failure);
     }
   };
 }
 export default createHandler({
-  getDatabase: async () => (await import('../lib/database.js')).database(),
+  getDatabase: async () => (await import('../lib/database.js')).readyDatabase(),
   readState: async sql => (await import('../lib/database.js')).readState(sql)
 });
