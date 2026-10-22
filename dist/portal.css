@@ -1,0 +1,931 @@
+:root {
+  /* One premium dark theme for the whole portal, matching the sign-in screens. */
+  --page: #050B1A;
+  --bg: rgba(255, 255, 255, 0.05);
+  --surface: rgba(17, 33, 64, 0.58);
+  --surface-solid: #0D1A33;
+  --ink: #EAF2FF;
+  --muted: #93A6C6;
+  --accent: #1FBEF8;
+  --accent-2: #0589ED;
+  --accent-ink: #031325;
+  --line: rgba(255, 255, 255, 0.09);
+  --danger: #FF6B5E;
+  --navy: #EAF2FF;
+  --glow: rgba(31, 190, 248, 0.35);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection { background: rgba(31, 190, 248, 0.32); color: #fff; }
+
+a { color: inherit; text-decoration: none; }
+
+input, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+input::placeholder, textarea::placeholder { color: rgba(200, 215, 240, 0.38); }
+option, optgroup { background: var(--surface-solid); color: var(--ink); }
+/* Checkboxes and radios keep their natural size (the rule above is for text fields). */
+input[type="checkbox"], input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+input, textarea, select { transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s; }
+input:not([type="checkbox"]):not([type="radio"]):hover, textarea:hover, select:hover { border-color: rgba(255, 255, 255, 0.18) !important; }
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px rgba(31, 190, 248, 0.16);
+}
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid #7FD8FF;
+  outline-offset: 2px;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: transform 0.18s ease, box-shadow 0.25s ease, filter 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+button:disabled { cursor: not-allowed; }
+
+/* Thin, quiet scrollbars that sit on the dark glass. */
+* { scrollbar-width: thin; scrollbar-color: rgba(147, 166, 198, 0.28) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(147, 166, 198, 0.25); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(147, 166, 198, 0.45); }
+::-webkit-scrollbar-track { background: transparent; }
+
+.menu-item:hover { background: rgba(255, 255, 255, 0.07) !important; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }
+
+/* Loading placeholders: a light sweep across dark glass so waiting never looks frozen. */
+@keyframes ps-load-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes ps-shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+.ps-skel {
+  border-radius: 8px;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.04) 30%, rgba(127, 216, 255, 0.11) 50%, rgba(255, 255, 255, 0.04) 70%);
+  background-size: 250% 100%;
+  animation: ps-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .spin, .ps-skel { animation: none; } }
+
+/* While something the person is waiting on is loading (set by NavProgress). */
+html[data-busy] body { cursor: progress; }
+html[data-busy] a, html[data-busy] button { cursor: progress; }
+
+/* Reporting tab: let the Looker Studio embed use the full content width. */
+.workspace-column:has(.report-wide) {
+  max-width: none !important;
+}
+
+/* Overview: main column + sticky stat cards on the right. Stacks on small screens. */
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 24px;
+  align-items: start;
+}
+.overview-stats {
+  position: sticky;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+@media (max-width: 1000px) {
+  .overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .overview-stats {
+    position: static;
+    order: -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+/* Overview Metrics & Targets: all six cards on one line; scrolls sideways if the screen is too narrow. */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(140px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+
+/* ==========================================================================
+   Splash screen (components/SplashScreen.tsx)
+   Timeline: 0s backdrop → .2s rings draw → .35s emblem pops → 1.25s wordmark
+   → 2s tagline → .6–3.2s progress → 3s content fades → 3.25s wipe reveal.
+   The exit is pure CSS, so the overlay always clears itself.
+   ========================================================================== */
+.ps-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #050B1A;
+  color: #fff;
+  animation: ps-splash-exit 0.9s cubic-bezier(0.76, 0, 0.24, 1) 3.25s forwards;
+}
+html[data-splash="done"] .ps-splash { display: none; }
+
+.ps-splash-aurora {
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(40% 40% at 25% 30%, rgba(5, 137, 237, 0.42), transparent 70%),
+    radial-gradient(38% 38% at 78% 72%, rgba(31, 190, 248, 0.3), transparent 70%),
+    radial-gradient(30% 30% at 60% 15%, rgba(40, 80, 220, 0.25), transparent 70%);
+  filter: blur(30px);
+  animation: ps-fade 1.4s ease both, ps-drift 14s ease-in-out infinite alternate;
+}
+.ps-splash-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 10%, transparent 70%);
+  mask-image: radial-gradient(ellipse at center, #000 10%, transparent 70%);
+  animation: ps-fade 1.6s ease 0.1s both;
+}
+.ps-splash-beam {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: -40%;
+  width: 30%;
+  background: linear-gradient(100deg, transparent, rgba(127, 216, 255, 0.16), transparent);
+  transform: skewX(-18deg);
+  animation: ps-beam 2s cubic-bezier(0.4, 0, 0.2, 1) 0.7s both;
+}
+
+.ps-splash-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  animation: ps-content-out 0.5s ease 3s forwards;
+}
+
+.ps-splash-emblem {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 92px;
+}
+.ps-splash-rings {
+  position: absolute;
+  top: -70px;
+  left: -70px;
+  width: 340px;
+  height: 340px;
+  overflow: visible;
+}
+.ps-ring {
+  stroke-dasharray: 1;
+  transform-box: view-box;
+  transform-origin: 200px 200px;
+}
+.ps-ring-outer { animation: ps-draw 1.8s cubic-bezier(0.6, 0, 0.2, 1) 0.2s both, ps-spin 20s linear infinite; }
+.ps-ring-inner { animation: ps-draw 1.6s cubic-bezier(0.6, 0, 0.2, 1) 0.45s both, ps-spin 15s linear infinite reverse; }
+.ps-orbit { transform-box: view-box; transform-origin: 200px 200px; filter: drop-shadow(0 0 6px rgba(127, 216, 255, 0.9)); }
+.ps-orbit-1 { animation: ps-fade 0.6s ease 1.1s both, ps-spin 7s linear infinite; }
+.ps-orbit-2 { animation: ps-fade 0.6s ease 1.3s both, ps-spin 10s linear infinite reverse; }
+
+.ps-splash-glow {
+  position: absolute;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(31, 190, 248, 0.55), rgba(5, 137, 237, 0.18) 55%, transparent 72%);
+  filter: blur(18px);
+  animation: ps-pop 1.2s cubic-bezier(0.2, 0.9, 0.3, 1) 0.2s both, ps-glow-pulse 3s ease-in-out 1.4s infinite;
+}
+.ps-splash-disc {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 30% 25%, #ffffff 0%, #E6F1FF 55%, #C9DFFB 100%);
+  box-shadow:
+    0 20px 60px -10px rgba(5, 137, 237, 0.7),
+    0 0 0 8px rgba(255, 255, 255, 0.05),
+    inset 0 -8px 20px rgba(5, 137, 237, 0.18);
+  animation: ps-pop 0.95s cubic-bezier(0.2, 1.25, 0.4, 1) 0.35s both, ps-float 4.5s ease-in-out 1.4s infinite;
+}
+.ps-splash-disc img { width: 104px; height: auto; display: block; }
+
+.ps-splash-word {
+  display: flex;
+  gap: 0.4em;
+  font-size: clamp(1.9rem, 7vw, 3rem);
+  font-weight: 800;
+  line-height: 1;
+}
+.ps-splash-line { display: inline-flex; letter-spacing: 0.16em; margin-right: -0.16em; }
+.ps-splash-line-accent { text-shadow: 0 0 28px rgba(31, 190, 248, 0.45); }
+.ps-splash-letter { display: inline-block; animation: ps-letter 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+.ps-splash-tagline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+  font-size: clamp(0.62rem, 2.2vw, 0.78rem);
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #9DB7DE;
+  white-space: nowrap;
+  animation: ps-tagline 1s ease 2s both;
+}
+.ps-splash-tagline i {
+  display: block;
+  height: 1px;
+  width: 44px;
+  background: linear-gradient(90deg, transparent, #1FBEF8);
+  animation: ps-line-grow 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 2.1s both;
+  transform-origin: right center;
+}
+.ps-splash-tagline i:last-child { background: linear-gradient(90deg, #1FBEF8, transparent); transform-origin: left center; }
+
+.ps-splash-progress {
+  position: relative;
+  width: 180px;
+  height: 2px;
+  margin-top: 40px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  animation: ps-fade 0.6s ease 0.5s both;
+}
+.ps-splash-progress span {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #0589ED, #7FD8FF);
+  box-shadow: 0 0 12px rgba(31, 190, 248, 0.9);
+  transform-origin: left center;
+  animation: ps-progress 2.6s cubic-bezier(0.65, 0, 0.35, 1) 0.6s both;
+}
+
+@keyframes ps-splash-exit {
+  0%   { clip-path: inset(0 0 0 0); visibility: visible; }
+  99%  { visibility: visible; }
+  100% { clip-path: inset(0 0 100% 0); visibility: hidden; }
+}
+@keyframes ps-content-out { to { opacity: 0; transform: scale(1.06); filter: blur(6px); } }
+@keyframes ps-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ps-draw { from { stroke-dashoffset: 1; opacity: 0; } 12% { opacity: 1; } to { stroke-dashoffset: 0; opacity: 1; } }
+@keyframes ps-spin { to { transform: rotate(360deg); } }
+@keyframes ps-pop { from { opacity: 0; transform: scale(0.55); } to { opacity: 1; transform: scale(1); } }
+@keyframes ps-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes ps-glow-pulse { 0%, 100% { opacity: 0.85; transform: scale(1); } 50% { opacity: 1; transform: scale(1.1); } }
+@keyframes ps-letter { from { opacity: 0; transform: translateY(22px); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes ps-tagline { from { opacity: 0; letter-spacing: 0.5em; } to { opacity: 1; letter-spacing: 0.32em; } }
+@keyframes ps-line-grow { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes ps-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ps-beam { from { left: -40%; opacity: 0; } 20% { opacity: 1; } to { left: 120%; opacity: 0; } }
+@keyframes ps-drift { from { transform: translate3d(-3%, -2%, 0) scale(1); } to { transform: translate3d(3%, 3%, 0) scale(1.08); } }
+
+/* ==========================================================================
+   Sign-in & password screens ("auth" layout)
+   Always dark, so the scoped variables below restyle every shared inline style
+   (PasswordScreens.tsx) without touching the portal's own light/dark theme.
+   --ps-d delays the entrance until the splash has wiped away (first load only).
+   ========================================================================== */
+.ps-auth {
+  --surface: rgba(255, 255, 255, 0.05);
+  --ink: #EAF2FF;
+  --muted: #9DB0CF;
+  --line: rgba(255, 255, 255, 0.14);
+  --bg: rgba(255, 255, 255, 0.06);
+  --accent: #1FBEF8;
+  --accent-2: #0589ED;
+  --accent-ink: #031325;
+  --danger: #FF7A6E;
+  --ps-d: 0s;
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  color-scheme: dark;
+  color: var(--ink);
+  background: #050B1A;
+}
+html:not([data-splash="done"]) .ps-auth { --ps-d: 3.1s; }
+
+.ps-auth-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.ps-orb { position: absolute; border-radius: 50%; filter: blur(70px); will-change: transform; }
+.ps-orb-1 { width: 640px; height: 640px; left: -180px; top: -200px; background: radial-gradient(circle, rgba(5, 137, 237, 0.55), transparent 68%); animation: ps-drift 16s ease-in-out infinite alternate; }
+.ps-orb-2 { width: 540px; height: 540px; right: -160px; bottom: -180px; background: radial-gradient(circle, rgba(31, 190, 248, 0.38), transparent 68%); animation: ps-drift 19s ease-in-out -6s infinite alternate-reverse; }
+.ps-orb-3 { width: 380px; height: 380px; left: 42%; top: 52%; background: radial-gradient(circle, rgba(60, 90, 235, 0.26), transparent 68%); animation: ps-drift 22s ease-in-out -3s infinite alternate; }
+.ps-auth-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at 60% 45%, #000 5%, transparent 72%);
+  mask-image: radial-gradient(ellipse at 60% 45%, #000 5%, transparent 72%);
+}
+.ps-auth-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(5, 11, 26, 0.7) 100%); }
+.ps-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #A9E4FF;
+  box-shadow: 0 0 8px rgba(127, 216, 255, 0.9);
+  opacity: 0;
+  animation: ps-twinkle 6s ease-in-out infinite;
+}
+@keyframes ps-twinkle {
+  0%, 100% { opacity: 0; transform: translateY(0); }
+  50% { opacity: 0.7; transform: translateY(-18px); }
+}
+
+.ps-auth-shell {
+  flex: 1;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 72px;
+  align-items: center;
+}
+.ps-auth-main { display: flex; justify-content: center; }
+.ps-auth-footer { padding: 0 16px 22px; text-align: center; font-size: 0.78rem; color: rgba(157, 176, 207, 0.6); }
+
+/* Brand panel (left) */
+.ps-brand-top { display: flex; align-items: center; gap: 14px; margin-bottom: 44px; }
+.ps-brand-mark {
+  height: 56px;
+  width: auto;
+  padding: 8px 11px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #ffffff, #DCEBFF);
+  box-shadow: 0 10px 28px -8px rgba(31, 190, 248, 0.55);
+}
+.ps-brand-word { font-size: 1.15rem; font-weight: 800; letter-spacing: 0.2em; color: #fff; }
+.ps-brand-word span { margin-left: 0.4em; background: linear-gradient(100deg, #7FD8FF, #1FBEF8 60%, #0589ED); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.ps-brand-headline { margin: 0 0 18px; font-size: clamp(2.2rem, 4.2vw, 3.5rem); font-weight: 800; line-height: 1.07; letter-spacing: -0.025em; color: #fff; }
+.ps-brand-headline em { font-style: normal; background: linear-gradient(100deg, #7FD8FF, #1FBEF8 55%, #0589ED); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.ps-brand-copy { margin: 0 0 36px; max-width: 460px; font-size: 1.04rem; line-height: 1.65; color: #A9BAD6; }
+.ps-highlights { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; max-width: 560px; }
+.ps-highlights li { display: flex; gap: 14px; align-items: flex-start; }
+.ps-highlight-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #7FD8FF;
+  background: rgba(31, 190, 248, 0.1);
+  border: 1px solid rgba(31, 190, 248, 0.25);
+}
+.ps-highlights strong { display: block; font-size: 0.92rem; color: #fff; }
+.ps-highlights small { display: block; margin-top: 2px; font-size: 0.8rem; line-height: 1.45; color: #8FA3C4; }
+
+/* Entrance animation helper */
+.ps-rise { animation: ps-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+@keyframes ps-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* Glass card (sign-in and password screens) */
+.ps-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  margin: auto;
+  padding: 40px 36px 30px;
+  border-radius: 26px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  backdrop-filter: blur(26px) saturate(150%);
+  box-shadow:
+    0 40px 90px -24px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(31, 190, 248, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  animation: ps-card-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) var(--ps-d) both;
+}
+.ps-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(127, 216, 255, 0.9), transparent);
+}
+@keyframes ps-card-in { from { opacity: 0; transform: translateY(26px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+.ps-badge {
+  width: fit-content;
+  margin: 0 auto;
+  padding: 12px 16px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #ffffff, #DCEBFF);
+  box-shadow: 0 12px 32px -8px rgba(31, 190, 248, 0.55), 0 0 0 6px rgba(255, 255, 255, 0.04);
+}
+.ps-badge img { display: block; height: 48px; width: auto; }
+.ps-title { margin: 22px 0 6px; text-align: center; font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+.ps-sub { margin: 0 0 10px; text-align: center; font-size: 0.94rem; line-height: 1.5; color: var(--muted); }
+
+.ps-label { display: block; margin: 18px 0 8px; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.01em; color: #B8C7E0; }
+.ps-label-row { display: flex; align-items: flex-end; justify-content: space-between; margin: 18px 0 8px; }
+.ps-label-row .ps-label { margin: 0; }
+.ps-link-small { font-size: 0.8rem; font-weight: 600; color: #5CCBFA; transition: color 0.2s; }
+.ps-link-small:hover { color: #fff; }
+
+.ps-field { position: relative; }
+.ps-field-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #7F93B5; pointer-events: none; transition: color 0.2s; }
+.ps-field:focus-within .ps-field-icon { color: #1FBEF8; }
+.ps-auth .ps-input {
+  height: 50px;
+  padding: 0 14px 0 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font-size: 0.97rem;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.ps-auth .ps-input-pw { padding-right: 50px; }
+.ps-auth .ps-input::placeholder { color: rgba(200, 215, 240, 0.38); }
+.ps-auth .ps-input:hover { border-color: rgba(255, 255, 255, 0.25); }
+.ps-auth input:focus { outline: none; border-color: #1FBEF8; box-shadow: 0 0 0 4px rgba(31, 190, 248, 0.18); }
+.ps-auth .ps-input:focus { background: rgba(255, 255, 255, 0.08); }
+.ps-auth .ps-input:-webkit-autofill {
+  -webkit-text-fill-color: #fff;
+  caret-color: #fff;
+  box-shadow: 0 0 0 1000px #0C1A33 inset;
+  transition: background-color 9999s ease 0s;
+}
+.ps-eye {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: transparent;
+  color: #8EA3C6;
+  transition: background 0.2s, color 0.2s;
+}
+.ps-eye:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.ps-auth button:focus-visible, .ps-auth a:focus-visible { outline: 2px solid #7FD8FF; outline-offset: 2px; }
+
+.ps-error-slot { margin: 12px 0 16px; min-height: 8px; }
+.ps-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #FFB8B0;
+  background: rgba(255, 107, 94, 0.1);
+  border: 1px solid rgba(255, 107, 94, 0.32);
+  animation: ps-shake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+.ps-error svg { flex: none; margin-top: 1px; }
+@keyframes ps-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.ps-submit {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #031325;
+  background: linear-gradient(135deg, #3CCBFF 0%, #1FA6F5 45%, #0589ED 100%);
+  box-shadow: 0 14px 32px -10px rgba(5, 137, 237, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.2s ease;
+}
+.ps-submit:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 18px 38px -10px rgba(31, 190, 248, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.5); filter: brightness(1.05); }
+.ps-submit:active:not(:disabled) { transform: translateY(0) scale(0.99); }
+.ps-submit:disabled { opacity: 0.8; cursor: progress; }
+.ps-submit-arrow { transition: transform 0.25s ease; }
+.ps-submit:hover:not(:disabled) .ps-submit-arrow { transform: translateX(4px); }
+.ps-submit-shine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: skewX(-20deg);
+  pointer-events: none;
+  animation: ps-idle-shine 6s ease-in-out 5s infinite;
+}
+.ps-submit:hover:not(:disabled) .ps-submit-shine { animation: none; left: 130%; transition: left 0.7s ease; }
+@keyframes ps-idle-shine { 0%, 70% { left: -60%; } 100% { left: 140%; } }
+
+.ps-divider { display: flex; align-items: center; gap: 12px; margin: 26px 0 14px; font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase; color: #7F93B5; }
+.ps-divider::before, .ps-divider::after { content: ""; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.12); }
+.ps-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; text-align: center; font-size: 0.84rem; line-height: 1.45; color: var(--muted); }
+.ps-note svg { flex: none; color: #5CCBFA; }
+
+@media (max-width: 959px) {
+  .ps-auth-shell { grid-template-columns: minmax(0, 1fr); padding: 28px 16px; }
+  .ps-brand-panel { display: none; }
+}
+@media (max-width: 480px) {
+  .ps-card { padding: 32px 22px 24px; border-radius: 22px; }
+  .ps-splash-tagline i { width: 22px; }
+}
+
+/* Motion off: skip the intro quickly and show everything in its final state. */
+@media (prefers-reduced-motion: reduce) {
+  .ps-splash { animation: ps-fade-out 0.4s ease 0.9s forwards; }
+  .ps-splash *, .ps-auth *, .ps-card, .ps-rise { animation: none !important; }
+  .ps-particle { opacity: 0.4; }
+  .ps-submit-shine { display: none; }
+  .ps-splash-progress span { transform: none; }
+}
+@keyframes ps-fade-out { to { opacity: 0; visibility: hidden; } }
+
+/* ==========================================================================
+   Portal shell (app/(portal)/layout.tsx, components/Sidebar.tsx)
+   Same atmosphere as the sign-in screens, toned down so content stays easy
+   to read: drifting aurora, a faint grid, a few particles and a vignette.
+   ========================================================================== */
+.ps-portal {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  isolation: isolate;
+}
+.ps-portal-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background: var(--page); }
+.ps-portal-bg .ps-orb-1 { opacity: 0.8; }
+.ps-portal-bg .ps-orb-2 { opacity: 0.7; }
+.ps-portal-bg .ps-orb-3 { opacity: 0.75; }
+.ps-portal-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at 55% 20%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(ellipse at 55% 20%, #000 0%, transparent 70%);
+}
+.ps-portal-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 30%, transparent 40%, rgba(5, 11, 26, 0.75) 100%); }
+.ps-portal-bg .ps-particle { animation-duration: 8s; }
+
+/* Shell entrance: on the very first load it waits for the splash to wipe away. */
+.ps-portal { --ps-d: 0s; }
+html:not([data-splash="done"]) .ps-portal { --ps-d: 3.1s; }
+.ps-shell-in { animation: ps-shell-in 0.8s var(--ease-out) var(--ps-d) backwards; }
+@keyframes ps-shell-in { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+
+/* Icon rail */
+.ps-sidebar { display: flex; position: sticky; top: 0; height: 100vh; height: 100dvh; flex-shrink: 0; align-self: flex-start; z-index: 30; }
+.ps-rail {
+  position: relative;
+  width: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0;
+  gap: 4px;
+  background: linear-gradient(180deg, rgba(14, 28, 56, 0.82), rgba(7, 15, 33, 0.82));
+  border-right: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+.ps-rail::after {
+  content: "";
+  position: absolute;
+  top: 12%;
+  bottom: 12%;
+  right: -1px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(127, 216, 255, 0.45), transparent);
+  pointer-events: none;
+}
+.ps-rail-logo {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #ffffff, #DCEBFF);
+  box-shadow: 0 10px 26px -8px rgba(31, 190, 248, 0.6), 0 0 0 4px rgba(255, 255, 255, 0.04);
+  transition: transform 0.3s var(--ease-out), box-shadow 0.3s ease;
+}
+.ps-rail-logo:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 14px 32px -8px rgba(31, 190, 248, 0.8), 0 0 0 4px rgba(255, 255, 255, 0.06); }
+.ps-rail-logo img { height: 26px; width: auto; display: block; }
+
+.ps-rail-nav { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 0 9px; flex: 1; overflow-y: auto; scrollbar-width: none; }
+.ps-rail-nav::-webkit-scrollbar { display: none; }
+.ps-rail-link {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 2px 7px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--muted);
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+.ps-rail-link svg { transition: transform 0.25s var(--ease-out), color 0.2s ease, filter 0.25s ease; }
+.ps-rail-link:hover { color: var(--ink); background: rgba(255, 255, 255, 0.05); }
+.ps-rail-link:hover svg { transform: translateY(-1px); }
+.ps-rail-link[aria-current="page"] {
+  color: #fff;
+  font-weight: 700;
+  background: linear-gradient(180deg, rgba(31, 190, 248, 0.2), rgba(5, 137, 237, 0.08));
+  border-color: rgba(31, 190, 248, 0.28);
+  box-shadow: 0 10px 22px -14px rgba(31, 190, 248, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.ps-rail-link[aria-current="page"] svg { color: #7FD8FF; filter: drop-shadow(0 0 6px rgba(127, 216, 255, 0.7)); }
+.ps-rail-link[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #7FD8FF, #0589ED);
+  box-shadow: 0 0 10px rgba(31, 190, 248, 0.9);
+  animation: ps-indicator 0.35s var(--ease-out) both;
+}
+@keyframes ps-indicator { from { transform: scaleY(0); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.ps-rail-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 10px; border-top: 1px solid var(--line); width: calc(100% - 18px); }
+.ps-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--muted);
+  background: transparent;
+}
+.ps-icon-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.07); }
+.ps-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #031325;
+  background: linear-gradient(135deg, #7FD8FF, #1FBEF8 50%, #0589ED);
+  box-shadow: 0 0 0 2px rgba(5, 11, 26, 0.9), 0 0 0 3px rgba(31, 190, 248, 0.45), 0 6px 16px -6px rgba(31, 190, 248, 0.8);
+}
+
+/* Contextual panel */
+.ps-panel {
+  width: 248px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(12, 24, 48, 0.72), rgba(7, 15, 33, 0.72));
+  border-right: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+  animation: ps-panel-in 0.45s var(--ease-out) both;
+}
+@keyframes ps-panel-in { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+.ps-panel-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px 14px 15px 18px; border-bottom: 1px solid var(--line); }
+.ps-panel-title { font-weight: 800; font-size: 0.98rem; letter-spacing: -0.01em; color: #fff; }
+.ps-panel-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.ps-panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ps-panel-body a[href] { transition: background-color 0.18s ease, color 0.18s ease; }
+.ps-panel-body a[href]:hover { background-color: rgba(255, 255, 255, 0.07) !important; color: var(--ink); }
+.ps-panel-body a[aria-current="page"], .ps-panel-body a[data-active="true"] { color: #fff; }
+.ps-panel-foot { border-top: 1px solid var(--line); padding: 10px 10px 14px; }
+.ps-panel-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  text-align: left;
+  color: var(--muted);
+  background: transparent;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+.ps-panel-action:hover, .ps-panel-action[aria-current="page"] { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.ps-me { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); }
+.ps-me-name { font-size: 0.85rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+.ps-me-role { font-size: 0.74rem; color: var(--muted); }
+
+/* Top bar */
+.ps-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0 32px;
+  background: linear-gradient(180deg, rgba(5, 11, 26, 0.78), rgba(5, 11, 26, 0.55));
+  border-bottom: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+.ps-topbar::after {
+  content: "";
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(127, 216, 255, 0.5), transparent);
+  pointer-events: none;
+}
+.ps-main { flex: 1; min-width: 0; padding: 30px 34px 48px; overflow-x: auto; }
+
+/* ==========================================================================
+   Page content (every portal page)
+   ========================================================================== */
+/* One orchestrated entrance per page: the page's top-level blocks rise in sequence.
+   "backwards" fill means no transform is left behind once it finishes. */
+.ps-page > *,
+.ps-page > :only-child > * { animation: ps-rise 0.6s var(--ease-out) backwards; }
+.ps-page > :only-child { animation: none; }
+.ps-page > :nth-child(1), .ps-page > :only-child > :nth-child(1) { animation-delay: calc(var(--ps-d, 0s) + 0.04s); }
+.ps-page > :nth-child(2), .ps-page > :only-child > :nth-child(2) { animation-delay: calc(var(--ps-d, 0s) + 0.1s); }
+.ps-page > :nth-child(3), .ps-page > :only-child > :nth-child(3) { animation-delay: calc(var(--ps-d, 0s) + 0.16s); }
+.ps-page > :nth-child(4), .ps-page > :only-child > :nth-child(4) { animation-delay: calc(var(--ps-d, 0s) + 0.22s); }
+.ps-page > :nth-child(5), .ps-page > :only-child > :nth-child(5) { animation-delay: calc(var(--ps-d, 0s) + 0.28s); }
+.ps-page > :nth-child(n + 6), .ps-page > :only-child > :nth-child(n + 6) { animation-delay: calc(var(--ps-d, 0s) + 0.34s); }
+.ps-subpage { animation: ps-fade 0.35s ease both; }
+
+.ps-main h1 { font-weight: 800; letter-spacing: -0.025em; color: #fff; }
+.ps-main h2 { font-weight: 750; letter-spacing: -0.015em; color: #fff; }
+.ps-main h3 { letter-spacing: -0.01em; }
+
+/* Cards: every surface gets the sign-in card's glass sheen and a soft top highlight. */
+[style*="background:var(--surface)"],
+[style*="background: var(--surface)"] {
+  background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.01) 45%, transparent) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 22px 44px -30px rgba(0, 0, 0, 0.85);
+}
+:is(a, button)[style*="background:var(--surface)"]:hover,
+:is(a, button)[style*="background: var(--surface)"]:hover { border-color: rgba(127, 216, 255, 0.28) !important; }
+
+/* Primary actions: the sign-in button's gradient, lift and light sweep. */
+:is(button, a)[style*="background:var(--accent)"],
+:is(button, a)[style*="background: var(--accent)"] {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  color: #031325 !important;
+  background: linear-gradient(135deg, #3CCBFF 0%, #1FA6F5 45%, #0589ED 100%) !important;
+  box-shadow: 0 10px 24px -12px rgba(5, 137, 237, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.2s ease;
+}
+:is(button, a)[style*="background:var(--accent)"]::after,
+:is(button, a)[style*="background: var(--accent)"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 40%;
+  z-index: -1;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: skewX(-20deg);
+  pointer-events: none;
+  transition: left 0.7s ease;
+}
+:is(button, a)[style*="background:var(--accent)"]:hover:not(:disabled),
+:is(button, a)[style*="background: var(--accent)"]:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 16px 30px -12px rgba(31, 190, 248, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+:is(button, a)[style*="background:var(--accent)"]:hover:not(:disabled)::after,
+:is(button, a)[style*="background: var(--accent)"]:hover:not(:disabled)::after { left: 130%; }
+:is(button, a)[style*="background:var(--accent)"]:active:not(:disabled),
+:is(button, a)[style*="background: var(--accent)"]:active:not(:disabled) { transform: translateY(0) scale(0.985); }
+
+/* Secondary and danger buttons get a gentle response too. */
+button[style*="var(--line)"]:not([style*="var(--accent)"]):hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.22) !important; color: var(--ink) !important; background-color: rgba(255, 255, 255, 0.04); }
+button[style*="var(--danger)"]:hover:not(:disabled) { filter: brightness(1.08); }
+button:active:not(:disabled) { transform: scale(0.985); }
+
+/* Tables: quieter header, gentle row highlight. */
+.ps-main table { border-collapse: collapse; }
+.ps-main thead th { color: var(--muted); }
+.ps-main tbody tr { transition: background-color 0.15s ease; }
+.ps-main tbody tr:hover { background-color: rgba(127, 216, 255, 0.035); }
+
+/* Modals: blurred backdrop, and the dialog opens with a short lift (it answers a click). */
+.ps-overlay {
+  background: rgba(3, 8, 20, 0.62);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  backdrop-filter: blur(10px) saturate(120%);
+  animation: ps-fade 0.2s ease both;
+}
+.ps-overlay > * {
+  background-color: rgba(13, 26, 51, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 40px 90px -24px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(31, 190, 248, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  animation: ps-dialog-in 0.32s var(--ease-out) both;
+}
+@keyframes ps-dialog-in { from { opacity: 0; transform: translateY(14px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Popovers and menus: solid, so text underneath never shows through. */
+.ps-popover {
+  background-color: var(--surface-solid) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 24px 50px -16px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  animation: ps-pop-in 0.22s var(--ease-out) both;
+}
+@keyframes ps-pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 760px) {
+  .ps-topbar { padding: 0 16px; }
+  .ps-main { padding: 22px 16px 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-portal *, .ps-portal *::before, .ps-portal *::after, .ps-overlay, .ps-overlay > *, .ps-popover { animation: none !important; transition: none !important; }
+  .ps-skel { animation: none; }
+  .ps-portal-bg .ps-particle { opacity: 0.35; }
+}
