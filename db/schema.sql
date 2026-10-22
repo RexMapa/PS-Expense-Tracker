@@ -28,3 +28,6 @@ CREATE TABLE IF NOT EXISTS income (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS income_date_idx ON income (date DESC);
+ALTER TABLE income ADD COLUMN IF NOT EXISTS frequency TEXT NOT NULL DEFAULT 'once' CHECK (frequency IN ('once','monthly','twice_monthly','daily'));
+ALTER TABLE income ADD COLUMN IF NOT EXISTS pay_day_1 SMALLINT CHECK (pay_day_1 BETWEEN 1 AND 31);
+ALTER TABLE income ADD COLUMN IF NOT EXISTS pay_day_2 SMALLINT CHECK (pay_day_2 BETWEEN 1 AND 31);

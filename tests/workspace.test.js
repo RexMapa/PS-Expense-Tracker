@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sessionCookie, authenticated, validPassword } from '../lib/auth.js';
-import { validateExpense } from '../lib/validation.js';
+import { validateExpense, validateIncome } from '../lib/validation.js';
 import { createHandler } from '../api/workspace.js';
 const env = { APP_PASSWORD: 'test-password-only-123456', SESSION_SECRET: 'test-session-secret-only-1234567890', VERCEL: '1' };
 const expense = { id: '54e5f7b8-0000-4000-8000-123456789abc', description: "Supplier's software", amount: 125.25, date: '2026-10-22', category: 'Software', status: 'Paid', notes: '' };
@@ -52,4 +52,19 @@ test('delete and budget actions validate inputs and use parameters',async()=>{
 test('configuration and database failures do not leak secrets',async()=>{
   const unconfigured=createHandler({env:{}}),res=response();await unconfigured(request(),res);assert.equal(res.code,503);
   const broken=createHandler({env,getDatabase:async()=>{throw new Error('postgresql://private:secret@db')}}),bad=response();await broken(request(),bad);assert.equal(bad.code,503);assert.ok(!JSON.stringify(bad.body).includes('private:secret'));
+});
+test('income saves validate source and status and use parameterized SQL',async()=>{
+  const {handler,calls}=setup();const record={...expense,source:"Client's company",category:'Freelance',status:'Received'};
+  assert.ok(validateIncome(record));
+  for(const patch of [{source:' '},{status:'Paid'},{category:'Software'},{amount:-5},{date:'2026-02-30'}]) assert.ok(!validateIncome({...record,...patch}));
+  const res=response();await handler(request({action:'saveIncome',income:record}),res);assert.equal(res.code,200);assert.match(calls[0][0],/INSERT INTO income/);assert.ok(!calls[0][0].includes(record.source));assert.equal(calls[0][1][2],record.source);
+  const invalid=response();await handler(request({action:'saveIncome',income:{...record,source:''}}),invalid);assert.equal(invalid.code,400);assert.equal(calls.length,1);
+  const del=response();await handler(request({action:'deleteIncome',id:record.id}),del);assert.equal(del.code,200);assert.equal(calls[1][0],'DELETE FROM income WHERE id=$1');assert.deepEqual(calls[1][1],[record.id]);
+});
+test('income schedules validate frequencies and distinct paydays and save them',async()=>{
+  const {handler,calls}=setup();const record={...expense,source:'Employer',category:'Salary',status:'Received',frequency:'twice_monthly',payDay1:15,payDay2:30};
+  assert.ok(validateIncome(record));assert.ok(validateIncome({...record,frequency:'daily',payDay1:null,payDay2:null}));assert.ok(validateIncome({...record,frequency:'monthly',payDay2:null}));
+  for(const patch of [{frequency:'weekly'},{payDay1:0},{payDay1:32},{payDay1:1.5},{payDay2:15},{payDay2:null}])assert.ok(!validateIncome({...record,...patch}));
+  const res=response();await handler(request({action:'saveIncome',income:record}),res);assert.equal(res.code,200);assert.deepEqual(calls[0][1].slice(8),['twice_monthly',15,30]);assert.match(calls[0][0],/frequency=EXCLUDED.frequency/);
+  const bad=response();await handler(request({action:'saveIncome',income:{...record,payDay2:15}}),bad);assert.equal(bad.code,400);assert.equal(calls.length,1);
 });

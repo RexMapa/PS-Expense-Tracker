@@ -129,7 +129,7 @@ function renderTable() {
   $('#record-heading').textContent = isIncome ? 'INCOME / SOURCE' : 'EXPENSE';
   $('#category-heading').textContent = isIncome ? 'TYPE' : 'CATEGORY';
   $('#result-count').textContent = rows.length + ' records';
-  $('#rows').innerHTML = rows.length ? rows.map(record => `<tr><td><div class="expense-cell"><span class="expense-icon">${esc(record.description.charAt(0).toUpperCase())}</span><span>${esc(record.description)}${isIncome ? '<small>' + esc(record.source) + '</small>' : ''}</span></div></td><td>${esc(record.category)}</td><td>${dateText(record.date)}</td><td><span class="badge ${['Pending', 'Expected'].includes(record.status) ? 'pending' : ''}">${esc(record.status)}</span></td><td class="amount">${money(record.amount)}</td><td><button class="row-action" data-edit="${esc(record.id)}" aria-label="Edit ${esc(record.description)}">Edit</button><button class="row-action" data-delete="${esc(record.id)}" aria-label="Delete ${esc(record.description)}">×</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No ${isIncome ? 'income' : 'expenses'} found. ${isIncome ? 'Add an income source or payment' : 'Add an expense'} to get started.</td></tr>`;
+  $('#rows').innerHTML = rows.length ? rows.map(record => `<tr><td><div class="expense-cell"><span class="expense-icon">${esc(record.description.charAt(0).toUpperCase())}</span><span>${esc(record.description)}${isIncome ? '<small>' + esc(record.source) + '</small><small>' + esc(scheduleLabel(record)) + '</small>' : ''}</span></div></td><td>${esc(record.category)}</td><td>${dateText(record.date)}</td><td><span class="badge ${['Pending', 'Expected'].includes(record.status) ? 'pending' : ''}">${esc(record.status)}</span></td><td class="amount">${money(record.amount)}</td><td><button class="row-action" data-edit="${esc(record.id)}" aria-label="Edit ${esc(record.description)}">Edit</button><button class="row-action" data-delete="${esc(record.id)}" aria-label="Delete ${esc(record.description)}">×</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No ${isIncome ? 'income' : 'expenses'} found. ${isIncome ? 'Add an income source or payment' : 'Add an expense'} to get started.</td></tr>`;
   $('#footer-count').textContent = rows.length + ' records · ' + money(sum(rows));
 }
 function renderSidebar() {
@@ -186,6 +186,7 @@ function render() {
   });
   $('#overview').hidden = view === 'budgets' || view === 'summary'; $('#budget-view').hidden = view !== 'budgets'; $('#transaction-view').hidden = view === 'budgets' || view === 'summary';
   $('#summary-view').hidden = view !== 'summary';
+  $('#income-schedule-view').hidden = view !== 'income';
   if (view === 'summary') {
     renderStats([['Received income', money(received), 'Confirmed payments this month', '↙'], ['Total expenses', money(total), 'Paid and pending expenses', '↗'], ['Cash balance', money(received - (total - pending)), 'Received income less paid expenses', '◈'], ['Budget remaining', budget ? money(budget - total) : 'Not set', 'Monthly budget less all expenses', '◷']]);
     renderSummary();
@@ -198,7 +199,7 @@ function render() {
     receivedRecords.forEach(e => { const key = e.source.trim().toLowerCase(), previous = sources.get(key); sources.set(key, { label: previous?.label || e.source.trim(), amount: (previous?.amount || 0) + e.amount }); });
     let breakdown = [...sources.values()].sort((a, b) => b.amount - a.amount).map(s => [s.label, s.amount]);
     if (breakdown.length > 5) breakdown = [...breakdown.slice(0, 4), ['Other sources', breakdown.slice(4).reduce((s, r) => s + r[1], 0)]];
-    renderActivity(receivedRecords, breakdown, received, true); renderTable();
+    renderActivity(receivedRecords, breakdown, received, true); renderTable(); renderIncomeSchedules();
   } else {
     renderStats([['Total expenses', money(total), 'Recorded this month', '↗'], ['Paid expenses', money(total - pending), 'Payments completed', '✓'], ['Pending payments', money(pending), 'Payments awaiting completion', '◷'], ['Largest category', total ? cats[cats.map(c => sum(expenses.filter(e => e.category === c))).indexOf(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c)))))] : '—', total ? money(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c))))) + ' this month' : 'No spending recorded', '◈']]);
     renderActivity(expenses, cats.map(c => [c, sum(expenses.filter(e => e.category === c))]), total, false); renderTable();
@@ -259,6 +260,35 @@ function renderSummary() {
     </div>
     <article class="card" id="summary-activity"><div class="card-head"><div><h2>Recent financial activity</h2><p>Latest eight income and expense records in ${esc(month)}</p></div></div><div class="table-scroll"><table><thead><tr><th>RECORD</th><th>TYPE</th><th>DATE</th><th>STATUS</th><th class="amount">AMOUNT (PHP)</th></tr></thead><tbody>${recent.length ? recent.map(r => `<tr><td>${esc(r.description)}${r.kind === 'income' ? '<small>' + esc(r.source) + '</small>' : ''}</td><td>${r.kind === 'income' ? 'Income' : 'Expense'}</td><td>${dateText(r.date)}</td><td><span class="badge ${['Expected','Pending'].includes(r.status) ? 'pending' : ''}">${esc(r.status)}</span></td><td class="amount ${r.kind === 'income' ? 'positive' : ''}">${r.kind === 'income' ? '+' : '−'}${money(r.amount)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No activity this month. Open Expenses or Income to add records.</td></tr>'}</tbody></table></div></article>`;
 }
+function scheduleLabel(record) {
+  const frequency = record.frequency || 'once';
+  if (frequency === 'daily') return 'Every day';
+  if (frequency === 'monthly') return `Once a month · day ${record.payDay1}`;
+  if (frequency === 'twice_monthly') return `Twice a month · days ${[record.payDay1, record.payDay2].sort((a,b) => a-b).join(' & ')}`;
+  return 'One-time payment';
+}
+function scheduleDates(record, month) {
+  if (!record.frequency || record.frequency === 'once') return [];
+  const [year, number] = month.split('-').map(Number), lastDay = new Date(year, number, 0).getDate();
+  const days = record.frequency === 'daily' ? Array.from({length:lastDay}, (_,i) => i+1) : [record.payDay1, ...(record.frequency === 'twice_monthly' ? [record.payDay2] : [])];
+  return [...new Set(days.filter(d => Number.isInteger(d) && d >= 1 && d <= 31).map(day => `${month}-${String(Math.min(day,lastDay)).padStart(2,'0')}`))].sort().filter(date => date >= record.date);
+}
+function renderIncomeSchedules() {
+  const month = $('#month').value, recurring = income.filter(r => r.frequency && r.frequency !== 'once');
+  const entries = recurring.flatMap(record => scheduleDates(record,month).map(date => ({record,date})));
+  const upcoming = entries.filter(e => e.date >= today() && !(e.record.status === 'Received' && e.record.date === e.date)).sort((a,b) => a.date.localeCompare(b.date)).slice(0,8);
+  $('#income-schedule-view').innerHTML = `<article class="card income-schedules"><div class="card-head"><div><h2>Income payment schedules</h2><p>Planned paydays for the selected month · amounts are per payment</p></div><span class="badge">${entries.length} planned paydays</span></div><div class="schedule-totals"><div><small>Planned income this month</small><strong>${money(entries.reduce((s,e) => s+e.record.amount,0))}</strong></div><p>Schedules are forecasts. They do not create received payments or change your cash balance. Record each actual payment separately with “One-time payment”.</p></div><div class="schedule-columns"><div><h3>Recurring income</h3>${recurring.length ? recurring.map(r => `<div class="schedule-item"><div><b>${esc(r.source)}</b><small>${esc(r.description)} · ${esc(scheduleLabel(r))}</small><small>Starts ${dateText(r.date)} · ${money(r.amount)} per payday</small></div><button class="row-action" data-edit-schedule="${esc(r.id)}" aria-label="Edit schedule for ${esc(r.source)}">Edit</button></div>`).join('') : '<p class="empty">Add income and choose a payment schedule to see it here.</p>'}</div><div><h3>Upcoming paydays this month</h3>${upcoming.length ? upcoming.map(e => `<div class="schedule-item"><div><b>${esc(e.record.source)}</b><small>${dateText(e.date)}</small></div><strong>${money(e.record.amount)}</strong></div>`).join('') : '<p class="empty">No upcoming scheduled payments in this month.</p>'}</div></div></article>`;
+}
+function toggleScheduleForm() {
+  const form = $('#expense-form'), isIncome = editorKind === 'income', frequency = form.elements.frequency.value || 'once';
+  const monthly = isIncome && ['monthly','twice_monthly'].includes(frequency), twice = isIncome && frequency === 'twice_monthly';
+  $('#income-schedule-fields').hidden = !isIncome; form.elements.frequency.disabled = !isIncome;
+  $('#payday-one-field').hidden = !monthly; $('#payday-two-field').hidden = !twice;
+  form.elements.payDay1.required = monthly; form.elements.payDay1.disabled = !monthly;
+  form.elements.payDay2.required = twice; form.elements.payDay2.disabled = !twice;
+  $('#record-date-label').textContent = isIncome && frequency !== 'once' ? 'Record date / schedule starts' : 'Date';
+  $('#schedule-help').textContent = {once:'Record a single payment on the selected date.',daily:'Paid every calendar day from the selected start date. Enter the amount for one day.',monthly:'Choose the day of the month (1–31). Shorter months use their last day. Enter the amount per payment.',twice_monthly:'Choose two different days (1–31). Shorter months use their last day; coinciding dates are counted once. Enter the amount for each payday.'}[frequency];
+}
 function openEditor(id) {
   editorKind = view === 'income' ? 'income' : 'expenses'; editing = id || null;
   const isIncome = editorKind === 'income', form = $('#expense-form'); form.reset();
@@ -267,11 +297,16 @@ function openEditor(id) {
   form.elements.category.innerHTML = (isIncome ? incomeCats : cats).map(c => `<option>${c}</option>`).join('');
   form.elements.status.innerHTML = (isIncome ? ['Received', 'Expected'] : ['Paid', 'Pending']).map(c => `<option>${c}</option>`).join('');
   $('#source-field').hidden = !isIncome; form.elements.source.required = isIncome;
+  form.elements.frequency.value = 'once';
+  form.elements.payDay1.value = ''; form.elements.payDay2.value = '';
   $('#form-category-label').textContent = isIncome ? 'Income type' : 'Category';
   if (id) {
     const record = (isIncome ? income : data).find(e => e.id === id); if (!record) return;
     for (const key of ['description', 'amount', 'date', 'category', 'status', 'notes', 'source']) form.elements[key].value = record[key] || '';
+    form.elements.frequency.value = record.frequency || 'once';
+    form.elements.payDay1.value = record.payDay1 || ''; form.elements.payDay2.value = record.payDay2 || '';
   }
+  toggleScheduleForm();
   $('#modal-title').textContent = `${id ? 'Edit' : 'Add'} ${isIncome ? 'income' : 'expense'}`;
   $('#save-record').textContent = isIncome ? 'Save income' : 'Save expense'; $('#editor').showModal();
 }
@@ -282,7 +317,12 @@ $('#expense-form').onsubmit = async e => {
   e.preventDefault(); if (!ready || busy) return;
   const form = e.target, amount = Number(form.elements.amount.value), isIncome = editorKind === 'income';
   const item = { id: editing || crypto.randomUUID(), description: form.elements.description.value.trim(), amount, date: form.elements.date.value, category: form.elements.category.value, status: form.elements.status.value, notes: form.elements.notes.value.trim() };
-  if (isIncome) item.source = form.elements.source.value.trim();
+  if (isIncome) {
+    item.source = form.elements.source.value.trim(); item.frequency = form.elements.frequency.value;
+    item.payDay1 = ['monthly','twice_monthly'].includes(item.frequency) ? Number(form.elements.payDay1.value) : null;
+    item.payDay2 = item.frequency === 'twice_monthly' ? Number(form.elements.payDay2.value) : null;
+    if (item.frequency === 'twice_monthly' && item.payDay1 === item.payDay2) { notify('Choose two different paydays.'); return; }
+  }
   if (!item.description || !Number.isFinite(amount) || amount <= 0 || (isIncome && !item.source)) return;
   const button = $('#save-record'); button.disabled = true;
   try {
@@ -292,6 +332,8 @@ $('#expense-form').onsubmit = async e => {
   } finally { button.disabled = false; }
 };
 document.addEventListener('click', async e => {
+  const schedule = e.target.closest('[data-edit-schedule]');
+  if (schedule && ready && !busy && view === 'income') openEditor(schedule.dataset.editSchedule);
   const edit = e.target.closest('[data-edit]'), del = e.target.closest('[data-delete]'), nav = e.target.closest('[data-view]');
   if (edit && ready && !busy) openEditor(edit.dataset.edit);
   if (del && ready && !busy) {
@@ -314,6 +356,7 @@ document.addEventListener('change', async e => {
 });
 for (const selector of ['#month', '#category', '#status']) $(selector).onchange = () => { if ($('#month').value) render(); };
 $('#search').oninput = render;
+$('#expense-form [name="frequency"]').onchange = toggleScheduleForm;
 function exportRows() {
   if (view === 'summary') {
     const a = summaryAnalytics();
@@ -321,7 +364,7 @@ function exportRows() {
   }
   if (view === 'budgets') return [['Category', 'Budget (PHP)', 'Spent (PHP)', 'Remaining (PHP)', 'Month'], ...budgetRows().map(r => [r.category, r.limit, r.spent, r.limit - r.spent, $('#month').value])];
   const isIncome = view === 'income';
-  return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', 'Date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes'], ...filtered().map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || ''])];
+  return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', 'Date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes', ...(isIncome ? ['Frequency','Payday 1','Payday 2'] : [])], ...filtered().map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || '', ...(isIncome ? [r.frequency || 'once',r.payDay1 || '',r.payDay2 || ''] : [])])];
 }
 $('#export').onclick = () => {
   if (!ready) return;
