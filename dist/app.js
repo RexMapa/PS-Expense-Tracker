@@ -72,7 +72,7 @@ function filtered() {
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 function setFilters() {
-  if (view === 'budgets') return;
+  if (!filters[view]) return;
   const isIncome = view === 'income', options = isIncome ? incomeCats : cats;
   $('#category').innerHTML = '<option value="">All ' + (isIncome ? 'types' : 'categories') + '</option>' + options.map(c => `<option>${c}</option>`).join('');
   $('#status').innerHTML = '<option value="">All statuses</option>' + (isIncome ? ['Received', 'Expected'] : ['Paid', 'Pending']).map(c => `<option>${c}</option>`).join('');
@@ -84,9 +84,10 @@ function setFilters() {
   $('#category').setAttribute('aria-label', isIncome ? 'Filter income type' : 'Filter expense category');
 }
 function switchView(next) {
-  if (!['expenses', 'budgets', 'income'].includes(next)) return;
-  if (view !== 'budgets') filters[view] = { search: $('#search').value, category: $('#category').value, status: $('#status').value };
+  if (!['summary', 'expenses', 'budgets', 'income'].includes(next)) return;
+  if (filters[view]) filters[view] = { search: $('#search').value, category: $('#category').value, status: $('#status').value };
   view = next; setFilters(); render();
+  $('#title').scrollIntoView?.({ behavior: 'auto', block: 'start' });
 }
 function renderStats(cards) {
   $('#stats').innerHTML = cards.map(([label, value, detail, icon]) => `<article class="stat"><div class="stat-top">${label}<span class="stat-icon">${icon}</span></div><strong>${value}</strong><small>${detail}</small></article>`).join('');
@@ -133,9 +134,13 @@ function renderTable() {
 }
 function renderSidebar() {
   const isIncome = view === 'income';
-  $('#section-title').textContent = { expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' }[view];
-  $('#section-copy').textContent = { expenses: 'Manage your spending.', budgets: 'Plan every peso.', income: 'Track what comes in.' }[view];
+  $('#section-title').textContent = { summary: 'Overview', expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' }[view];
+  $('#section-copy').textContent = { summary: 'Your complete financial picture.', expenses: 'Manage your spending.', budgets: 'Plan every peso.', income: 'Track what comes in.' }[view];
   $('#context-nav').setAttribute('aria-label', $('#section-title').textContent + ' controls');
+  if (view === 'summary') {
+    $('#context-nav').innerHTML = '<div class="context-label">ANALYTICS</div>' + [['trend','Cash-flow trend'],['dashboards','All dashboards'],['budget','Budget health'],['sources','Income sources'],['activity','Recent activity']].map(([key, label]) => `<button data-summary-anchor="${key}"><span class="context-dot"></span><span>${label}</span></button>`).join('');
+    return;
+  }
   if (view === 'budgets') {
     $('#context-nav').innerHTML = '<button data-budget-home="true" class="active">◷ <span>Monthly dashboard</span></button><div class="context-label">CATEGORY LIMITS</div>' + cats.map(c => `<button data-budget-focus="${c}"><span class="context-dot"></span><span>${c}</span></button>`).join('');
     return;
@@ -168,19 +173,23 @@ function render() {
   const receivedRecords = incomeRecords.filter(e => e.status === 'Received'), received = sum(receivedRecords);
   const expected = sum(incomeRecords.filter(e => e.status === 'Expected'));
   const rows = budgetRows(), budget = rows.reduce((s, row) => s + row.limit, 0);
-  const labels = { expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' };
+  const labels = { summary: 'Overview', expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' };
   $('#period-label').textContent = new Date($('#month').value + '-01T12:00:00').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
   renderSidebar();
-  $('#title').textContent = labels[view] + ' dashboard'; $('#crumb').textContent = labels[view];
-  $('#subtitle').textContent = { expenses: 'Understand your spending, one expense at a time.', budgets: 'Give every peso a purpose. Plan your monthly spending.', income: 'Know where your income comes from and what is still expected.' }[view];
-  $('#add').hidden = view === 'budgets'; $('#add').textContent = view === 'income' ? '＋ Add income' : '＋ Add expense';
+  $('#title').textContent = view === 'summary' ? 'Financial overview' : labels[view] + ' dashboard'; $('#crumb').textContent = labels[view];
+  $('#subtitle').textContent = { summary: 'Income, spending and budgets. One clear picture of every peso.', expenses: 'Understand your spending, one expense at a time.', budgets: 'Give every peso a purpose. Plan your monthly spending.', income: 'Know where your income comes from and what is still expected.' }[view];
+  $('#add').hidden = view === 'budgets' || view === 'summary'; $('#add').textContent = view === 'income' ? '＋ Add income' : '＋ Add expense';
   $('#export').textContent = '↓ Export ' + (view === 'budgets' ? 'budgets' : 'CSV');
   document.querySelectorAll('[data-view]').forEach(button => {
     const active = button.dataset.view === view; button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
   });
-  $('#overview').hidden = view === 'budgets'; $('#budget-view').hidden = view !== 'budgets'; $('#transaction-view').hidden = view === 'budgets';
-  if (view === 'budgets') {
+  $('#overview').hidden = view === 'budgets' || view === 'summary'; $('#budget-view').hidden = view !== 'budgets'; $('#transaction-view').hidden = view === 'budgets' || view === 'summary';
+  $('#summary-view').hidden = view !== 'summary';
+  if (view === 'summary') {
+    renderStats([['Received income', money(received), 'Confirmed payments this month', '↙'], ['Total expenses', money(total), 'Paid and pending expenses', '↗'], ['Cash balance', money(received - (total - pending)), 'Received income less paid expenses', '◈'], ['Budget remaining', budget ? money(budget - total) : 'Not set', 'Monthly budget less all expenses', '◷']]);
+    renderSummary();
+  } else if (view === 'budgets') {
     renderStats([['Monthly budget', money(budget), 'Recurring category limits', '◈'], ['Spent this month', money(total), 'Paid and pending expenses', '↗'], ['Budget remaining', budget ? money(budget - total) : 'Not set', 'Total budget less all expenses', '◷'], ['Over-budget categories', String(rows.filter(r => r.limit && r.spent > r.limit).length), 'Categories exceeding a set limit', '!']]);
     renderBudgets(rows);
   } else if (view === 'income') {
@@ -194,6 +203,61 @@ function render() {
     renderStats([['Total expenses', money(total), 'Recorded this month', '↗'], ['Paid expenses', money(total - pending), 'Payments completed', '✓'], ['Pending payments', money(pending), 'Payments awaiting completion', '◷'], ['Largest category', total ? cats[cats.map(c => sum(expenses.filter(e => e.category === c))).indexOf(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c)))))] : '—', total ? money(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c))))) + ' this month' : 'No spending recorded', '◈']]);
     renderActivity(expenses, cats.map(c => [c, sum(expenses.filter(e => e.category === c))]), total, false); renderTable();
   }
+}
+function summaryAnalytics() {
+  const expenses = selected(), incomes = selected('income');
+  const total = sum(expenses), paid = sum(expenses.filter(r => r.status === 'Paid'));
+  const received = sum(incomes.filter(r => r.status === 'Received')), expected = sum(incomes.filter(r => r.status === 'Expected'));
+  const budget = cats.reduce((s, c) => s + (Number(budgets[c]) || 0), 0);
+  const [year, month] = $('#month').value.split('-').map(Number);
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const date = new Date(year, month - 6 + i, 1, 12), key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const incoming = sum(income.filter(r => r.date.startsWith(key) && r.status === 'Received'));
+    const outgoing = sum(data.filter(r => r.date.startsWith(key) && r.status === 'Paid'));
+    return { key, label: date.toLocaleDateString('en-PH', { month: 'short', year: '2-digit' }), incoming, outgoing, net: incoming - outgoing };
+  });
+  const previous = months[4], previousExpenses = sum(data.filter(r => r.date.startsWith(previous.key)));
+  return { expenses, incomes, total, paid, pending: total - paid, received, expected, budget, net: received - paid, months, previousExpenses, savingsRate: received ? (received - paid) / received * 100 : null };
+}
+function renderSummary() {
+  const a = summaryAnalytics(), month = $('#month').value;
+  const maximum = Math.max(...a.months.flatMap(m => [m.incoming, m.outgoing]), 1);
+  const sources = new Map();
+  a.incomes.filter(r => r.status === 'Received').forEach(r => {
+    const key = r.source.trim().toLowerCase(), previous = sources.get(key);
+    sources.set(key, { label: previous?.label || r.source.trim(), amount: (previous?.amount || 0) + r.amount });
+  });
+  const sourceRows = [...sources.values()].sort((x, y) => y.amount - x.amount);
+  const categoryRows = budgetRows(), top = [...categoryRows].sort((x, y) => y.spent - x.spent)[0];
+  const spendChange = a.previousExpenses ? (a.total - a.previousExpenses) / a.previousExpenses * 100 : null;
+  const recent = [...a.expenses.map(r => ({ ...r, kind: 'expenses' })), ...a.incomes.map(r => ({ ...r, kind: 'income' }))].sort((x, y) => y.date.localeCompare(x.date)).slice(0, 8);
+  $('#summary-view').innerHTML = `
+    <div class="summary-layout">
+      <article class="card" id="summary-trend"><div class="card-head"><div><h2>Cash-flow analytics</h2><p>Six months ending with the selected month · received income vs paid expenses</p></div></div>
+        <div class="summary-legend"><span>● Received income</span><span>● Paid expenses</span></div>
+        <div class="flow-chart">${a.months.map(m => `<div class="flow-column"><div class="flow-bars"><i class="flow-income" style="height:${m.incoming / maximum * 100}%" title="${m.label} received: ${money(m.incoming)}"></i><i class="flow-expense" style="height:${m.outgoing / maximum * 100}%" title="${m.label} paid expenses: ${money(m.outgoing)}"></i></div><span>${m.label}</span><small class="${m.net < 0 ? 'negative' : ''}" title="Monthly cash balance">${money(m.net)}</small></div>`).join('')}</div>
+      </article>
+      <article class="card"><div class="card-head"><div><h2>Month at a glance</h2><p>Analytics for the selected month</p></div></div>
+        <div class="summary-metric"><span>Cash savings rate</span><strong>${a.savingsRate === null ? '—' : a.savingsRate.toFixed(1) + '%'}</strong><small>Cash balance divided by received income</small></div>
+        <div class="summary-metric"><span>Spending vs previous month</span><strong>${spendChange === null ? 'No prior spending' : (spendChange > 0 ? '+' : '') + spendChange.toFixed(1) + '%'}</strong><small>All recorded expenses; paid and pending</small></div>
+        <div class="summary-metric"><span>Largest expense category</span><strong>${a.total ? top.category : 'No expenses yet'}</strong><small>${a.total ? money(top.spent) + ' · ' + (top.spent / a.total * 100).toFixed(1) + '% of spending' : 'Add expenses to see the breakdown'}</small></div>
+      </article>
+    </div>
+    <div class="summary-dashboard-grid" id="summary-dashboards">
+      <button class="card dashboard-link" data-view="expenses"><span class="eyebrow">EXPENSES ↗</span><strong>${money(a.total)}</strong><span>Paid ${money(a.paid)}</span><small>Pending ${money(a.pending)} · ${a.expenses.length} records</small><b>Open Expenses →</b></button>
+      <button class="card dashboard-link" data-view="budgets"><span class="eyebrow">BUDGETS ↗</span><strong>${a.budget ? money(a.budget) : 'Not set'}</strong><span>${a.budget ? (a.total / a.budget * 100).toFixed(1) + '% of budget used' : 'Set your monthly limits'}</span><small>${categoryRows.filter(r => r.limit && r.spent > r.limit).length} over-budget categories</small><b>Open Budgets →</b></button>
+      <button class="card dashboard-link" data-view="income"><span class="eyebrow">INCOME ↗</span><strong>${money(a.received)}</strong><span>Expected ${money(a.expected)}</span><small>${new Set(a.incomes.map(r => r.source.trim().toLowerCase())).size} sources · ${a.incomes.length} records</small><b>Open Income →</b></button>
+    </div>
+    <div class="summary-layout">
+      <article class="card" id="summary-budget"><div class="card-head"><div><h2>Budget health & spending</h2><p>All expenses count toward monthly limits</p></div><button data-view="budgets">Manage →</button></div>
+        ${categoryRows.map(r => `<div class="summary-budget-row"><div><span>${r.category}</span><b>${money(r.spent)} <small>/ ${r.limit ? money(r.limit) : 'No limit set'}</small></b></div><progress value="${Math.min(r.spent, r.limit)}" max="${r.limit || 1}"></progress><small>${r.limit ? r.spent > r.limit ? money(r.spent - r.limit) + ' over budget' : money(r.limit - r.spent) + ' available' : 'No monthly budget set'}</small></div>`).join('')}
+      </article>
+      <article class="card" id="summary-sources"><div class="card-head"><div><h2>Income sources</h2><p>Share of received income this month</p></div><button data-view="income">View →</button></div>
+        ${sourceRows.length ? sourceRows.map((s, i) => `<div class="summary-source"><div><span><i style="background:${colors[i % colors.length]}"></i>${esc(s.label)}</span><b>${money(s.amount)}</b></div><small>${(s.amount / a.received * 100).toFixed(1)}% of received income</small></div>`).join('') : '<p class="empty">No received income in this month.</p>'}
+        <div class="summary-upcoming"><h2>Upcoming & unpaid</h2><div><span>Expected income</span><b>${money(a.expected)}</b></div><div><span>Pending expenses</span><b>${money(a.pending)}</b></div><small>These amounts are excluded from cash-flow and savings-rate calculations.</small></div>
+      </article>
+    </div>
+    <article class="card" id="summary-activity"><div class="card-head"><div><h2>Recent financial activity</h2><p>Latest eight income and expense records in ${esc(month)}</p></div></div><div class="table-scroll"><table><thead><tr><th>RECORD</th><th>TYPE</th><th>DATE</th><th>STATUS</th><th class="amount">AMOUNT (PHP)</th></tr></thead><tbody>${recent.length ? recent.map(r => `<tr><td>${esc(r.description)}${r.kind === 'income' ? '<small>' + esc(r.source) + '</small>' : ''}</td><td>${r.kind === 'income' ? 'Income' : 'Expense'}</td><td>${dateText(r.date)}</td><td><span class="badge ${['Expected','Pending'].includes(r.status) ? 'pending' : ''}">${esc(r.status)}</span></td><td class="amount ${r.kind === 'income' ? 'positive' : ''}">${r.kind === 'income' ? '+' : '−'}${money(r.amount)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No activity this month. Open Expenses or Income to add records.</td></tr>'}</tbody></table></div></article>`;
 }
 function openEditor(id) {
   editorKind = view === 'income' ? 'income' : 'expenses'; editing = id || null;
@@ -237,6 +301,8 @@ document.addEventListener('click', async e => {
   if (nav && !busy) switchView(nav.dataset.view);
   const context = e.target.closest('[data-context-all], [data-context-status], [data-context-category], [data-budget-focus], [data-budget-home]');
   if (context && !busy) contextAction(context);
+  const anchor = e.target.closest('[data-summary-anchor]');
+  if (anchor && view === 'summary') document.querySelector('#summary-' + anchor.dataset.summaryAnchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 document.addEventListener('change', async e => {
   if (!e.target.matches('[data-budget]')) return;
@@ -249,6 +315,10 @@ document.addEventListener('change', async e => {
 for (const selector of ['#month', '#category', '#status']) $(selector).onchange = () => { if ($('#month').value) render(); };
 $('#search').oninput = render;
 function exportRows() {
+  if (view === 'summary') {
+    const a = summaryAnalytics();
+    return [['Metric', 'Amount (PHP)', 'Month'], ...[['Received income', a.received], ['Expected income', a.expected], ['Total expenses', a.total], ['Paid expenses', a.paid], ['Pending expenses', a.pending], ['Cash balance', a.net], ['Monthly budget', a.budget], ['Budget remaining', a.budget ? a.budget - a.total : '']].map(([label, amount]) => [label, amount, $('#month').value])];
+  }
   if (view === 'budgets') return [['Category', 'Budget (PHP)', 'Spent (PHP)', 'Remaining (PHP)', 'Month'], ...budgetRows().map(r => [r.category, r.limit, r.spent, r.limit - r.spent, $('#month').value])];
   const isIncome = view === 'income';
   return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', 'Date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes'], ...filtered().map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || ''])];
@@ -257,7 +327,7 @@ $('#export').onclick = () => {
   if (!ready) return;
   const csv = exportRows().map(row => row.map(v => '"' + String(v).replace(/^[=+@\-]/, "'$&").replace(/"/g, '""') + '"').join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })), a = document.createElement('a');
-  a.href = url; a.download = `PrimeSphere-${view}-${$('#month').value}-PHP.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); notify('Peso CSV export downloaded');
+  a.href = url; a.download = `PrimeSphere-${view === 'summary' ? 'overview' : view}-${$('#month').value}-PHP.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); notify('Peso CSV export downloaded');
 };
 $('#login').addEventListener('cancel', e => e.preventDefault());
 $('#login-form').onsubmit = async e => {
