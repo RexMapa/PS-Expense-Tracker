@@ -6,10 +6,10 @@ import { schemaStatements } from '../lib/schema.js';
 import { connectionString } from '../lib/database.js';
 import { databaseFailure } from '../lib/database-errors.js';
 
-test('bundled schema matches manual SQL and contains no destructive statements', () => {
+test('bundled schema matches manual SQL and preserves existing records', () => {
   const manual = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8').split(';').map(s => s.trim()).filter(Boolean);
   assert.deepEqual(schemaStatements, manual);
-  assert.ok(schemaStatements.every(s => /^(CREATE (TABLE|INDEX) IF NOT EXISTS|ALTER TABLE income ADD COLUMN IF NOT EXISTS)/.test(s)));
+  assert.ok(schemaStatements.every(s => /^(CREATE (TABLE|INDEX) IF NOT EXISTS|ALTER TABLE (income|expenses) ADD COLUMN IF NOT EXISTS|ALTER TABLE income DROP CONSTRAINT IF EXISTS income_frequency_check$|ALTER TABLE income ADD CONSTRAINT income_frequency_check CHECK)/.test(s)));
 });
 
 test('first connection creates missing tables once using an advisory lock', async () => {

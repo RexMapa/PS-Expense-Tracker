@@ -31,21 +31,25 @@ export function createHandler({ env = process.env, getDatabase, readState } = {}
         if (action === 'saveExpense') {
           const e = req.body.expense;
           if (!validateExpense(e)) return send(400, { error: 'Check the expense fields, date and amount (up to two decimal places).' });
-          await sql.query(`INSERT INTO expenses (id, description, amount, date, category, status, notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7)
-            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, updated_at=now()`,
-          [e.id, e.description.trim(), e.amount, e.date, e.category, e.status, e.notes]);
+          await sql.query(`INSERT INTO expenses (id, description, amount, date, category, status, notes, stage)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, stage=EXCLUDED.stage, updated_at=now()`,
+          [e.id, e.description.trim(), e.amount, e.date, e.category, e.status, e.notes, e.stage ?? (e.status === 'Paid' ? 'paid' : 'ready')]);
+        } else if (action === 'setExpenseStage') {
+          const { ids, stage } = req.body;
+          if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every(validId) || !['draft','ready','paid'].includes(stage)) return send(400, { error: 'Invalid expense stage update.' });
+          await sql.query('UPDATE expenses SET stage=$2, status=$3, updated_at=now() WHERE id=ANY($1::uuid[])', [ids, stage, stage === 'paid' ? 'Paid' : 'Pending']);
         } else if (action === 'deleteExpense') {
           if (!validId(req.body.id)) return send(400, { error: 'Invalid expense ID.' });
           await sql.query('DELETE FROM expenses WHERE id=$1', [req.body.id]);
         } else if (action === 'saveIncome') {
           const e = req.body.income;
-          if (!validateIncome(e)) return send(400, { error: 'Check the income fields and schedule. Choose one payday for monthly income, or two different paydays for twice-monthly income.' });
+          if (!validateIncome(e)) return send(400, { error: 'Check the income fields and schedule. Weekly income needs a weekday; monthly income needs one payday, or two different paydays for twice-monthly income.' });
           const frequency = e.frequency ?? 'once';
-          await sql.query(`INSERT INTO income (id, description, source, amount, date, category, status, notes, frequency, pay_day_1, pay_day_2)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, source=EXCLUDED.source, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, frequency=EXCLUDED.frequency, pay_day_1=EXCLUDED.pay_day_1, pay_day_2=EXCLUDED.pay_day_2, updated_at=now()`,
-          [e.id, e.description.trim(), e.source.trim(), e.amount, e.date, e.category, e.status, e.notes, frequency, ['monthly','twice_monthly'].includes(frequency) ? e.payDay1 : null, frequency === 'twice_monthly' ? e.payDay2 : null]);
+          await sql.query(`INSERT INTO income (id, description, source, amount, date, category, status, notes, frequency, pay_day_1, pay_day_2, pay_weekday)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (id) DO UPDATE SET description=EXCLUDED.description, source=EXCLUDED.source, amount=EXCLUDED.amount, date=EXCLUDED.date, category=EXCLUDED.category, status=EXCLUDED.status, notes=EXCLUDED.notes, frequency=EXCLUDED.frequency, pay_day_1=EXCLUDED.pay_day_1, pay_day_2=EXCLUDED.pay_day_2, pay_weekday=EXCLUDED.pay_weekday, updated_at=now()`,
+          [e.id, e.description.trim(), e.source.trim(), e.amount, e.date, e.category, e.status, e.notes, frequency, ['monthly','twice_monthly'].includes(frequency) ? e.payDay1 : null, frequency === 'twice_monthly' ? e.payDay2 : null, frequency === 'weekly' ? e.payWeekday : null]);
         } else if (action === 'deleteIncome') {
           if (!validId(req.body.id)) return send(400, { error: 'Invalid income ID.' });
           await sql.query('DELETE FROM income WHERE id=$1', [req.body.id]);

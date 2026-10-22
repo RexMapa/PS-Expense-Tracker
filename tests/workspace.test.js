@@ -65,6 +65,18 @@ test('income schedules validate frequencies and distinct paydays and save them',
   const {handler,calls}=setup();const record={...expense,source:'Employer',category:'Salary',status:'Received',frequency:'twice_monthly',payDay1:15,payDay2:30};
   assert.ok(validateIncome(record));assert.ok(validateIncome({...record,frequency:'daily',payDay1:null,payDay2:null}));assert.ok(validateIncome({...record,frequency:'monthly',payDay2:null}));
   for(const patch of [{frequency:'weekly'},{payDay1:0},{payDay1:32},{payDay1:1.5},{payDay2:15},{payDay2:null}])assert.ok(!validateIncome({...record,...patch}));
-  const res=response();await handler(request({action:'saveIncome',income:record}),res);assert.equal(res.code,200);assert.deepEqual(calls[0][1].slice(8),['twice_monthly',15,30]);assert.match(calls[0][0],/frequency=EXCLUDED.frequency/);
+  const res=response();await handler(request({action:'saveIncome',income:record}),res);assert.equal(res.code,200);assert.deepEqual(calls[0][1].slice(8),['twice_monthly',15,30,null]);assert.match(calls[0][0],/frequency=EXCLUDED.frequency/);
   const bad=response();await handler(request({action:'saveIncome',income:{...record,payDay2:15}}),bad);assert.equal(bad.code,400);assert.equal(calls.length,1);
+});
+test('weekly schedules accept all seven weekdays and persist the selected day',async()=>{
+  const{handler,calls}=setup();const record={...expense,source:'Weekly client',category:'Freelance',status:'Expected',frequency:'weekly',payWeekday:0};
+  for(let day=0;day<7;day++)assert.ok(validateIncome({...record,payWeekday:day}));
+  for(const day of [-1,7,1.5,'1',null,undefined])assert.ok(!validateIncome({...record,payWeekday:day}));
+  const res=response();await handler(request({action:'saveIncome',income:record}),res);assert.equal(res.code,200);assert.deepEqual(calls[0][1].slice(8),['weekly',null,null,0]);
+});
+test('expense stage changes update paid status with parameterized SQL',async()=>{
+  const{handler,calls}=setup();
+  for(const stage of ['draft','ready','paid']){const res=response();await handler(request({action:'setExpenseStage',ids:[expense.id],stage}),res);assert.equal(res.code,200);assert.deepEqual(calls.at(-1)[1],[[expense.id],stage,stage==='paid'?'Paid':'Pending']);}
+  for(const body of [{ids:['bad'],stage:'paid'},{ids:[],stage:'ready'},{ids:[expense.id],stage:'unknown'}]){const res=response();await handler(request({action:'setExpenseStage',...body}),res);assert.equal(res.code,400)}
+  assert.ok(validateExpense({...expense,stage:'paid'}));assert.ok(!validateExpense({...expense,stage:'draft'}));assert.ok(validateExpense({...expense,status:'Pending',stage:'draft'}));
 });

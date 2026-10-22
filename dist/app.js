@@ -10,7 +10,12 @@ const today = () => {
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sum = records => records.reduce((total, record) => total + record.amount, 0);
 const dateText = date => new Date(date + 'T12:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+const weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const dateKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function addDays(key, count) { const date = new Date(key+'T12:00:00'); date.setDate(date.getDate()+count); return dateKey(date); }
+function weekStart(key) { const date = new Date(key+'T12:00:00'); return addDays(key,-((date.getDay()+6)%7)); }
 let data = [], income = [], budgets = {}, view = 'expenses', editing = null, editorKind = 'expenses', ready = false, busy = false;
+let expenseMode = 'week', expenseWeek = weekStart(today()), calendarDay = today(), calendarKind = 'all';
 const filters = { expenses: { search: '', category: '', status: '' }, income: { search: '', category: '', status: '' } };
 $('#month').value = today().slice(0, 7);
 
@@ -59,7 +64,7 @@ async function mutate(action, payload) {
   busy = true; $('#add').disabled = true;
   try { const state = await api(action, payload); applyState(state); return true; }
   catch (error) { notify(error.message); return false; }
-  finally { busy = false; $('#add').disabled = !ready; }
+  finally { busy = false; $('#add').disabled = !ready; render(); }
 }
 function selected(kind = 'expenses') {
   return (kind === 'income' ? income : data).filter(record => record.date.startsWith($('#month').value));
@@ -123,8 +128,8 @@ function renderBudgets(rows) {
   $('#budget-view').innerHTML = `<div class="charts"><article class="card"><div class="card-head"><div><h2>Budget vs actual spending</h2><p>Compare each monthly limit with recorded expenses</p></div></div><div class="budget-legend"><span>● Allocated</span><span>● Spent</span></div>${rows.map(row => `<div class="comparison"><div><span>${row.category}</span><small>${money(row.spent)} / ${money(row.limit)}</small></div><div class="comparison-track"><i style="width:${row.limit / max * 100}%"></i></div><div class="comparison-track spent"><i class="${row.limit && row.spent > row.limit ? 'over' : ''}" style="width:${row.spent / max * 100}%"></i></div></div>`).join('')}</article><article class="card"><div class="card-head"><div><h2>Budget health</h2><p>Monthly limits repeat each month</p></div></div>${rows.map(row => `<div class="health-row"><span>${row.category}</span><span class="badge ${row.limit && row.spent > row.limit ? 'pending' : ''}">${!row.limit ? 'No budget set' : row.spent > row.limit ? money(row.spent - row.limit) + ' over' : money(row.limit - row.spent) + ' left'}</span></div>`).join('')}<p class="budget-note">All expenses, including pending payments, count toward your budget.</p></article></div><article class="card"><div class="card-head"><div><h2>Manage monthly budgets</h2><p>Enter a category limit in Philippine pesos. Changes save automatically.</p></div></div><div class="budget-grid">${rows.map(row => `<div class="budget-item"><label>${row.category}<span>Monthly limit (₱)</span><input class="budget-edit" type="number" min="0" max="999999999" step="0.01" data-budget="${row.category}" aria-label="${row.category} monthly budget in pesos" value="${row.limit}" ${!ready || busy ? 'disabled' : ''}></label><progress value="${Math.min(row.spent, row.limit)}" max="${row.limit || 1}"></progress><small>${money(row.spent)} spent${row.limit ? ' · ' + Math.round(row.spent / row.limit * 100) + '% used' : ''}</small></div>`).join('')}</div></article>`;
 }
 function renderTable() {
-  const isIncome = view === 'income', rows = filtered();
-  $('#table-title').textContent = isIncome ? 'Income records' : 'Expense records';
+  const isIncome = view === 'income', rows = !isIncome && expenseMode === 'history' ? filtered().filter(r=>r.status === 'Paid') : filtered();
+  $('#table-title').textContent = isIncome ? 'Income records' : expenseMode === 'history' ? 'Paid expense history' : 'Expense records';
   $('#table-copy').textContent = isIncome ? 'Track received and expected payments from every source' : 'All your expense records for the selected month';
   $('#record-heading').textContent = isIncome ? 'INCOME / SOURCE' : 'EXPENSE';
   $('#category-heading').textContent = isIncome ? 'TYPE' : 'CATEGORY';
@@ -176,6 +181,7 @@ function render() {
   const labels = { summary: 'Overview', expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' };
   $('#period-label').textContent = new Date($('#month').value + '-01T12:00:00').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
   renderSidebar();
+  $('#context-nav').innerHTML += '<div class="context-label">PLANNING</div><button data-open-calendar="true"><span class="context-dot"></span><span>Payment calendar</span></button>';
   $('#title').textContent = view === 'summary' ? 'Financial overview' : labels[view] + ' dashboard'; $('#crumb').textContent = labels[view];
   $('#subtitle').textContent = { summary: 'Income, spending and budgets. One clear picture of every peso.', expenses: 'Understand your spending, one expense at a time.', budgets: 'Give every peso a purpose. Plan your monthly spending.', income: 'Know where your income comes from and what is still expected.' }[view];
   $('#add').hidden = view === 'budgets' || view === 'summary'; $('#add').textContent = view === 'income' ? '＋ Add income' : '＋ Add expense';
@@ -187,6 +193,7 @@ function render() {
   $('#overview').hidden = view === 'budgets' || view === 'summary'; $('#budget-view').hidden = view !== 'budgets'; $('#transaction-view').hidden = view === 'budgets' || view === 'summary';
   $('#summary-view').hidden = view !== 'summary';
   $('#income-schedule-view').hidden = view !== 'income';
+  $('#expense-board-view').hidden = view !== 'expenses';
   if (view === 'summary') {
     renderStats([['Received income', money(received), 'Confirmed payments this month', '↙'], ['Total expenses', money(total), 'Paid and pending expenses', '↗'], ['Cash balance', money(received - (total - pending)), 'Received income less paid expenses', '◈'], ['Budget remaining', budget ? money(budget - total) : 'Not set', 'Monthly budget less all expenses', '◷']]);
     renderSummary();
@@ -203,7 +210,48 @@ function render() {
   } else {
     renderStats([['Total expenses', money(total), 'Recorded this month', '↗'], ['Paid expenses', money(total - pending), 'Payments completed', '✓'], ['Pending payments', money(pending), 'Payments awaiting completion', '◷'], ['Largest category', total ? cats[cats.map(c => sum(expenses.filter(e => e.category === c))).indexOf(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c)))))] : '—', total ? money(Math.max(...cats.map(c => sum(expenses.filter(e => e.category === c))))) + ' this month' : 'No spending recorded', '◈']]);
     renderActivity(expenses, cats.map(c => [c, sum(expenses.filter(e => e.category === c))]), total, false); renderTable();
+    renderExpenseBoard();
+    $('#transaction-view').hidden = expenseMode !== 'history';
   }
+  renderCalendar();
+}
+function expenseStage(record) { return record.status === 'Paid' ? 'paid' : record.stage === 'draft' ? 'draft' : 'ready'; }
+function expenseBoardRecords() {
+  const end = addDays(expenseWeek,6), search = $('#search').value.toLowerCase();
+  return data.filter(r=>r.date >= expenseWeek && r.date <= end && (!$('#category').value || r.category === $('#category').value) && (!$('#status').value || r.status === $('#status').value) && `${r.description} ${r.notes || ''}`.toLowerCase().includes(search)).sort((a,b)=>a.date.localeCompare(b.date));
+}
+function expenseCard(r) {
+  const stage = expenseStage(r), late = r.status !== 'Paid' && r.date < today();
+  return `<article class="expense-pay-card"><div class="pay-card-head"><div><h3>${esc(r.description)}</h3><small>${esc(r.category)} · Due ${dateText(r.date)}</small></div><div><small>Amount</small><strong>${money(r.amount)}</strong></div></div><div class="pay-card-metrics"><div><small>Category</small><b>${esc(r.category)}</b></div><div><small>Due date</small><b>${dateText(r.date)}</b></div><div><small>Status</small><b class="${late?'late-text':''}">${stage === 'draft' ? 'To save' : stage === 'paid' ? 'Paid' : late ? 'Overdue' : 'Ready to pay'}</b></div></div><div class="pay-card-actions"><details><summary>⌄ Details</summary><p>${esc(r.notes || 'No notes added.')}</p><button class="row-action" data-edit="${esc(r.id)}">Edit</button><button class="row-action" data-delete="${esc(r.id)}">Delete</button></details><button class="row-action" data-expense-download="${esc(r.id)}" title="Download expense CSV" aria-label="Download ${esc(r.description)}">↓</button><button class="${stage==='paid'?'':'primary'}" data-expense-stage="${stage==='draft'?'ready':stage==='ready'?'paid':'ready'}" data-expense-id="${esc(r.id)}" ${!ready||busy?'disabled':''}>${stage==='draft'?'▣ Save':stage==='ready'?'✓ Mark paid':'Undo'}</button></div></article>`;
+}
+function renderExpenseBoard() {
+  const records = expenseBoardRecords(), grouped = {draft:records.filter(r=>expenseStage(r)==='draft'),ready:records.filter(r=>expenseStage(r)==='ready'),paid:records.filter(r=>expenseStage(r)==='paid')};
+  $('#expense-board-view').innerHTML = `<div class="expense-board-heading"><div><h2>Expense records</h2><p>Review, save and track payments. Dates below show when each expense is due.</p></div><div class="record-tabs"><button data-expense-mode="week" class="${expenseMode==='week'?'active':''}">Weekly expenses</button><button data-expense-mode="history" class="${expenseMode==='history'?'active':''}">History</button></div></div>${expenseMode==='week'?`<div class="expense-week-toolbar"><button data-expense-week="-1" aria-label="Previous expense week">‹</button><b>${dateText(expenseWeek)} – ${dateText(addDays(expenseWeek,6))}</b><button data-expense-week="1" aria-label="Next expense week">›</button><button data-expense-today="true">This week</button><button data-board-export="true">↓ Export CSV</button></div><div class="payroll-summary">${[['Total expenses',money(sum(records))],['To save',money(sum(grouped.draft))],['Ready to pay',money(sum(grouped.ready))],['Paid',money(sum(grouped.paid))],['Awaiting payment',String(grouped.draft.length+grouped.ready.length)],['Paid records',`${grouped.paid.length} of ${records.length}`]].map(([label,value],i)=>`<div><small>${label}</small><strong class="${i===0?'accent-text':''}">${value}</strong></div>`).join('')}</div><div class="expense-board-columns">${[['draft','To save','Review each expense, then save it.','No expenses to save.'],['ready','Ready to pay','Saved and waiting for payment.','Nothing waiting to be paid.'],['paid','Paid','Marked paid this week. Undo moves it back.','No expenses marked paid yet.']].map(([stage,label,copy,empty])=>`<section class="expense-stage ${stage}"><div class="expense-stage-head"><div><h3><i></i>${label}<span>${grouped[stage].length}</span></h3><p>${copy}</p></div><div><small>Total</small><strong>${money(sum(grouped[stage]))}</strong></div></div>${stage==='draft'&&grouped.draft.length?`<button class="primary save-all" data-save-all="true" ${!ready||busy?'disabled':''}>▣ Save all ${grouped.draft.length}</button>`:''}${grouped[stage].length?grouped[stage].map(expenseCard).join(''):`<div class="stage-empty">${empty}</div>`}</section>`).join('')}</div>`:''}`;
+}
+function calendarEvents(month) {
+  const events = data.filter(r=>r.date.startsWith(month)).map(r=>({date:r.date,kind:'expense',label:r.description,amount:r.amount,status:r.status==='Paid'?'Paid':expenseStage(r)==='draft'?'Draft · due':'Due',record:r}));
+  income.filter(r=>r.date.startsWith(month)).forEach(r=>events.push({date:r.date,kind:'income',label:r.source+' · '+r.description,amount:r.amount,status:r.status,record:r}));
+  const key = (r,date)=>`${r.source.trim().toLowerCase()}|${date}|${r.amount}`;
+  const recorded = new Set(income.map(r=>key(r,r.date))), projected = new Set();
+  income.forEach(r=>scheduleDates(r,month).forEach(date=>{
+    const k=key(r,date);if(recorded.has(k)||projected.has(k))return;projected.add(k);
+    events.push({date,kind:'income',label:r.source+' · scheduled',amount:r.amount,status:'Scheduled',record:r});
+  }));
+  return events.sort((a,b)=>a.date.localeCompare(b.date)||a.kind.localeCompare(b.kind));
+}
+function renderCalendar() {
+  const month=$('#month').value,[year,number]=month.split('-').map(Number),count=new Date(year,number,0).getDate(),offset=(new Date(year,number-1,1).getDay()+6)%7;
+  if(!calendarDay.startsWith(month))calendarDay=today().startsWith(month)?today():month+'-01';
+  const events=calendarEvents(month).filter(e=>calendarKind==='all'||e.kind===calendarKind),dayEvents=events.filter(e=>e.date===calendarDay);
+  $('#finance-calendar').innerHTML=`<article class="card finance-calendar"><div class="card-head"><div><h2>Payment calendar</h2><p>Expense due dates, income receipts and scheduled paydays · PHP</p></div><div class="calendar-navigation"><button data-calendar-month="-1" aria-label="Previous calendar month">‹</button><b>${new Date(month+'-01T12:00:00').toLocaleDateString('en-PH',{month:'long',year:'numeric'})}</b><button data-calendar-month="1" aria-label="Next calendar month">›</button><button data-calendar-today="true">Today</button></div></div><div class="calendar-filters">${[['all','All payments'],['expense','Expenses'],['income','Income']].map(([kind,label])=>`<button data-calendar-kind="${kind}" class="${calendarKind===kind?'active':''}" aria-pressed="${calendarKind===kind}">${label}</button>`).join('')}<span><i class="calendar-dot expense"></i> Expense due <i class="calendar-dot income"></i> Income / payday</span></div><div class="calendar-grid"><div class="calendar-weekday">Mon</div><div class="calendar-weekday">Tue</div><div class="calendar-weekday">Wed</div><div class="calendar-weekday">Thu</div><div class="calendar-weekday">Fri</div><div class="calendar-weekday">Sat</div><div class="calendar-weekday">Sun</div>${Array.from({length:offset},()=>'<div class="calendar-blank"></div>').join('')}${Array.from({length:count},(_,i)=>{const date=month+'-'+String(i+1).padStart(2,'0'),items=events.filter(e=>e.date===date);return `<button class="calendar-day ${calendarDay===date?'selected':''} ${date===today()?'is-today':''}" data-calendar-day="${date}" aria-label="${dateText(date)}, ${items.length} payments" aria-pressed="${calendarDay===date}"><b>${i+1}</b>${items.slice(0,2).map(e=>`<span class="calendar-event ${e.kind} ${e.status==='Paid'||e.status==='Received'?'complete':''}" title="${esc(e.label)} · ${esc(e.status)} · ${money(e.amount)}"><i></i><span>${esc(e.label)}</span><small>${money(e.amount)}</small></span>`).join('')}${items.length>2?`<small class="calendar-more">+${items.length-2} more</small>`:''}</button>`}).join('')}</div><div class="calendar-agenda"><h3>${dateText(calendarDay)}</h3>${dayEvents.length?dayEvents.map(e=>`<div class="agenda-item"><span class="calendar-dot ${e.kind}"></span><div><b>${esc(e.label)}</b><small>${e.kind==='expense'?'Expense due':'Income payment'} · ${esc(e.status)}</small></div><strong>${money(e.amount)}</strong></div>`).join(''):'<p>No payments on this day.</p>'}<small class="calendar-footnote">Scheduled income is a forecast. Received income and paid expenses are shown with their recorded status.</small></div></article>`;
+}
+function changeCalendarMonth(delta) {
+  const [year,month]=$('#month').value.split('-').map(Number),date=new Date(year,month-1+delta,1,12);
+  $('#month').value=dateKey(date).slice(0,7);calendarDay=$('#month').value+'-01';expenseWeek=weekStart(calendarDay);render();
+}
+function downloadCSV(rows,filename) {
+  const csv=rows.map(row=>row.map(v=>'"'+String(v).replace(/^[=+@\-]/,"'$&").replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'})),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function summaryAnalytics() {
   const expenses = selected(), incomes = selected('income');
@@ -263,6 +311,7 @@ function renderSummary() {
 function scheduleLabel(record) {
   const frequency = record.frequency || 'once';
   if (frequency === 'daily') return 'Every day';
+  if (frequency === 'weekly') return `Every ${weekdays[record.payWeekday] || 'week'}`;
   if (frequency === 'monthly') return `Once a month · day ${record.payDay1}`;
   if (frequency === 'twice_monthly') return `Twice a month · days ${[record.payDay1, record.payDay2].sort((a,b) => a-b).join(' & ')}`;
   return 'One-time payment';
@@ -270,7 +319,7 @@ function scheduleLabel(record) {
 function scheduleDates(record, month) {
   if (!record.frequency || record.frequency === 'once') return [];
   const [year, number] = month.split('-').map(Number), lastDay = new Date(year, number, 0).getDate();
-  const days = record.frequency === 'daily' ? Array.from({length:lastDay}, (_,i) => i+1) : [record.payDay1, ...(record.frequency === 'twice_monthly' ? [record.payDay2] : [])];
+  const days = record.frequency === 'weekly' ? Array.from({length:lastDay},(_,i)=>i+1).filter(day => new Date(year,number-1,day,12).getDay() === record.payWeekday) : record.frequency === 'daily' ? Array.from({length:lastDay}, (_,i) => i+1) : [record.payDay1, ...(record.frequency === 'twice_monthly' ? [record.payDay2] : [])];
   return [...new Set(days.filter(d => Number.isInteger(d) && d >= 1 && d <= 31).map(day => `${month}-${String(Math.min(day,lastDay)).padStart(2,'0')}`))].sort().filter(date => date >= record.date);
 }
 function renderIncomeSchedules() {
@@ -286,8 +335,9 @@ function toggleScheduleForm() {
   $('#payday-one-field').hidden = !monthly; $('#payday-two-field').hidden = !twice;
   form.elements.payDay1.required = monthly; form.elements.payDay1.disabled = !monthly;
   form.elements.payDay2.required = twice; form.elements.payDay2.disabled = !twice;
-  $('#record-date-label').textContent = isIncome && frequency !== 'once' ? 'Record date / schedule starts' : 'Date';
-  $('#schedule-help').textContent = {once:'Record a single payment on the selected date.',daily:'Paid every calendar day from the selected start date. Enter the amount for one day.',monthly:'Choose the day of the month (1–31). Shorter months use their last day. Enter the amount per payment.',twice_monthly:'Choose two different days (1–31). Shorter months use their last day; coinciding dates are counted once. Enter the amount for each payday.'}[frequency];
+  $('#weekday-field').hidden = !isIncome || frequency !== 'weekly'; form.elements.payWeekday.disabled = !isIncome || frequency !== 'weekly'; form.elements.payWeekday.required = isIncome && frequency === 'weekly';
+  $('#record-date-label').textContent = !isIncome ? 'Due date' : frequency !== 'once' ? 'Record date / schedule starts' : 'Payment date';
+  $('#schedule-help').textContent = {once:'Record a single payment on the selected date.',daily:'Paid every calendar day from the selected start date. Enter the amount for one day.',weekly:'Choose Monday through Sunday. Paydays repeat every week on that day from the start date. Enter the amount per weekly payment.',monthly:'Choose the day of the month (1–31). Shorter months use their last day. Enter the amount per payment.',twice_monthly:'Choose two different days (1–31). Shorter months use their last day; coinciding dates are counted once. Enter the amount for each payday.'}[frequency];
 }
 function openEditor(id) {
   editorKind = view === 'income' ? 'income' : 'expenses'; editing = id || null;
@@ -295,16 +345,19 @@ function openEditor(id) {
   form.elements.description.placeholder = isIncome ? 'e.g. October salary or client payment' : 'e.g. Monthly software subscription';
   form.elements.date.value = today();
   form.elements.category.innerHTML = (isIncome ? incomeCats : cats).map(c => `<option>${c}</option>`).join('');
-  form.elements.status.innerHTML = (isIncome ? ['Received', 'Expected'] : ['Paid', 'Pending']).map(c => `<option>${c}</option>`).join('');
+  form.elements.status.innerHTML = isIncome ? ['Received','Expected'].map(c=>`<option>${c}</option>`).join('') : '<option value="draft">To save</option><option value="ready">Ready to pay</option><option value="paid">Paid</option>';
   $('#source-field').hidden = !isIncome; form.elements.source.required = isIncome;
   form.elements.frequency.value = 'once';
   form.elements.payDay1.value = ''; form.elements.payDay2.value = '';
+  form.elements.payWeekday.value = '';
   $('#form-category-label').textContent = isIncome ? 'Income type' : 'Category';
   if (id) {
     const record = (isIncome ? income : data).find(e => e.id === id); if (!record) return;
     for (const key of ['description', 'amount', 'date', 'category', 'status', 'notes', 'source']) form.elements[key].value = record[key] || '';
     form.elements.frequency.value = record.frequency || 'once';
     form.elements.payDay1.value = record.payDay1 || ''; form.elements.payDay2.value = record.payDay2 || '';
+    form.elements.payWeekday.value = record.payWeekday ?? '';
+    if (!isIncome) form.elements.status.value = expenseStage(record);
   }
   toggleScheduleForm();
   $('#modal-title').textContent = `${id ? 'Edit' : 'Add'} ${isIncome ? 'income' : 'expense'}`;
@@ -316,22 +369,41 @@ $('#editor').addEventListener('cancel', e => { if (busy) e.preventDefault(); });
 $('#expense-form').onsubmit = async e => {
   e.preventDefault(); if (!ready || busy) return;
   const form = e.target, amount = Number(form.elements.amount.value), isIncome = editorKind === 'income';
-  const item = { id: editing || crypto.randomUUID(), description: form.elements.description.value.trim(), amount, date: form.elements.date.value, category: form.elements.category.value, status: form.elements.status.value, notes: form.elements.notes.value.trim() };
+  const item = { id: editing || crypto.randomUUID(), description: form.elements.description.value.trim(), amount, date: form.elements.date.value, category: form.elements.category.value, status: isIncome ? form.elements.status.value : form.elements.status.value === 'paid' ? 'Paid' : 'Pending', notes: form.elements.notes.value.trim() };
+  if (!isIncome) item.stage = form.elements.status.value;
   if (isIncome) {
     item.source = form.elements.source.value.trim(); item.frequency = form.elements.frequency.value;
     item.payDay1 = ['monthly','twice_monthly'].includes(item.frequency) ? Number(form.elements.payDay1.value) : null;
     item.payDay2 = item.frequency === 'twice_monthly' ? Number(form.elements.payDay2.value) : null;
+    item.payWeekday = item.frequency === 'weekly' ? Number(form.elements.payWeekday.value) : null;
     if (item.frequency === 'twice_monthly' && item.payDay1 === item.payDay2) { notify('Choose two different paydays.'); return; }
   }
   if (!item.description || !Number.isFinite(amount) || amount <= 0 || (isIncome && !item.source)) return;
   const button = $('#save-record'); button.disabled = true;
   try {
     if (await mutate(isIncome ? 'saveIncome' : 'saveExpense', { [isIncome ? 'income' : 'expense']: item })) {
-      $('#month').value = item.date.slice(0, 7); $('#editor').close(); render(); notify(`${isIncome ? 'Income' : 'Expense'} ${editing ? 'updated' : 'added'}`);
+      $('#month').value = item.date.slice(0, 7); if (!isIncome) expenseWeek = weekStart(item.date); $('#editor').close(); render(); notify(`${isIncome ? 'Income' : 'Expense'} ${editing ? 'updated' : 'added'}`);
     }
   } finally { button.disabled = false; }
 };
 document.addEventListener('click', async e => {
+  const mode=e.target.closest('[data-expense-mode]'),week=e.target.closest('[data-expense-week]'),thisWeek=e.target.closest('[data-expense-today]');
+  if(mode&&!busy){expenseMode=mode.dataset.expenseMode;$('#status').value='';render();}
+  if((week||thisWeek)&&!busy){expenseWeek=thisWeek?weekStart(today()):addDays(expenseWeek,Number(week.dataset.expenseWeek)*7);$('#month').value=addDays(expenseWeek,3).slice(0,7);render();}
+  const stage=e.target.closest('[data-expense-stage]'),saveAll=e.target.closest('[data-save-all]');
+  if((stage||saveAll)&&ready&&!busy){
+    const ids=saveAll?expenseBoardRecords().filter(r=>expenseStage(r)==='draft').map(r=>r.id):[stage.dataset.expenseId],target=saveAll?'ready':stage.dataset.expenseStage;
+    let success=true;for(let i=0;i<ids.length;i+=500){if(!await mutate('setExpenseStage',{ids:ids.slice(i,i+500),stage:target})){success=false;break;}}
+    if(success&&ids.length)notify(target==='paid'?'Expense marked paid':target==='ready'?'Expense saved and ready to pay':'Expense updated');
+  }
+  const singleExport=e.target.closest('[data-expense-download]'),boardExport=e.target.closest('[data-board-export]');
+  if((singleExport||boardExport)&&ready){const records=singleExport?data.filter(r=>r.id===singleExport.dataset.expenseDownload):expenseBoardRecords();downloadCSV([['Expense','Amount (PHP)','Due date','Category','Stage','Notes'],...records.map(r=>[r.description,r.amount,r.date,r.category,expenseStage(r),r.notes||''])],`PrimeSphere-expenses-${expenseWeek}-PHP.csv`);}
+  const calendarMonth=e.target.closest('[data-calendar-month]'),calendarToday=e.target.closest('[data-calendar-today]'),calendarDate=e.target.closest('[data-calendar-day]'),calendarFilter=e.target.closest('[data-calendar-kind]');
+  if(calendarMonth)changeCalendarMonth(Number(calendarMonth.dataset.calendarMonth));
+  if(calendarToday){$('#month').value=today().slice(0,7);calendarDay=today();expenseWeek=weekStart(today());render();}
+  if(calendarDate){calendarDay=calendarDate.dataset.calendarDay;renderCalendar();}
+  if(calendarFilter){calendarKind=calendarFilter.dataset.calendarKind;renderCalendar();}
+  if(e.target.closest('[data-open-calendar]'))$('#finance-calendar').scrollIntoView({behavior:'smooth',block:'start'});
   const schedule = e.target.closest('[data-edit-schedule]');
   if (schedule && ready && !busy && view === 'income') openEditor(schedule.dataset.editSchedule);
   const edit = e.target.closest('[data-edit]'), del = e.target.closest('[data-delete]'), nav = e.target.closest('[data-view]');
@@ -354,7 +426,7 @@ document.addEventListener('change', async e => {
   const saved = await mutate('saveBudget', { category: input.dataset.budget, amount: n });
   render(); if (saved) notify('Monthly budget saved');
 });
-for (const selector of ['#month', '#category', '#status']) $(selector).onchange = () => { if ($('#month').value) render(); };
+for (const selector of ['#month', '#category', '#status']) $(selector).onchange = () => { if ($('#month').value) { if(selector==='#month'){expenseWeek=weekStart($('#month').value+'-01');calendarDay=$('#month').value+'-01';} render(); } };
 $('#search').oninput = render;
 $('#expense-form [name="frequency"]').onchange = toggleScheduleForm;
 function exportRows() {
@@ -364,7 +436,8 @@ function exportRows() {
   }
   if (view === 'budgets') return [['Category', 'Budget (PHP)', 'Spent (PHP)', 'Remaining (PHP)', 'Month'], ...budgetRows().map(r => [r.category, r.limit, r.spent, r.limit - r.spent, $('#month').value])];
   const isIncome = view === 'income';
-  return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', 'Date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes', ...(isIncome ? ['Frequency','Payday 1','Payday 2'] : [])], ...filtered().map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || '', ...(isIncome ? [r.frequency || 'once',r.payDay1 || '',r.payDay2 || ''] : [])])];
+  const records=isIncome?filtered():expenseMode==='week'?expenseBoardRecords():filtered().filter(r=>r.status==='Paid');
+  return [['Description', ...(isIncome ? ['Source'] : []), 'Amount (PHP)', isIncome?'Date':'Due date', isIncome ? 'Income type' : 'Category', 'Status', 'Notes', ...(isIncome ? ['Frequency','Payday 1','Payday 2','Weekday'] : ['Stage'])], ...records.map(r => [r.description, ...(isIncome ? [r.source] : []), r.amount, r.date, r.category, r.status, r.notes || '', ...(isIncome ? [r.frequency || 'once',r.payDay1 || '',r.payDay2 || '',r.frequency==='weekly'?weekdays[r.payWeekday]:''] : [expenseStage(r)])])];
 }
 $('#export').onclick = () => {
   if (!ready) return;

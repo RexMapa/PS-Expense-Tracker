@@ -80,3 +80,26 @@ test('income schedule forecasts do not increase received cash or actual-income a
 test('PrimeSphere favicon is linked and contains a valid PNG image',()=>{
   const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');assert.match(html,/<link rel="icon" type="image\/png" href="\/favicon.png">/);const png=readFileSync(new URL('../dist/favicon.png',import.meta.url));assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.ok(png.readUInt32BE(16)>0);assert.ok(png.readUInt32BE(20)>0);
 });
+test('weekly payday generation handles every weekday, starts and month boundaries',async()=>{
+  const{context}=browser(async()=>({ok:true,json:async()=>dashboardState}));await vm.runInContext('load()',context);
+  const calculate=(record,month)=>JSON.parse(vm.runInContext(`JSON.stringify(scheduleDates(${JSON.stringify(record)},${JSON.stringify(month)}))`,context));
+  const record={frequency:'weekly',date:'2026-10-01',payWeekday:1};
+  assert.deepEqual(calculate(record,'2026-10'),['2026-10-05','2026-10-12','2026-10-19','2026-10-26']);
+  assert.deepEqual(calculate({...record,payWeekday:0,date:'2026-10-15'},'2026-10'),['2026-10-18','2026-10-25']);
+  assert.deepEqual(calculate({...record,payWeekday:5,date:'2026-10-31'},'2026-11'),['2026-11-06','2026-11-13','2026-11-20','2026-11-27']);
+});
+test('all dashboard calendars contain due dates, income receipts and recurring forecasts without duplicates',async()=>{
+  const state={...dashboardState,income:[{...dashboardState.income[0],frequency:'weekly',payWeekday:4,date:'2026-10-22'}]};const{context,element}=browser(async()=>({ok:true,json:async()=>state}));await vm.runInContext('load()',context);element('#month').value='2026-10';
+  const entries=vm.runInContext("calendarEvents('2026-10')",context);assert.equal(entries.filter(e=>e.kind==='income'&&e.date==='2026-10-22').length,1);assert.equal(entries.find(e=>e.date==='2026-10-29').status,'Scheduled');assert.equal(entries.filter(e=>e.kind==='expense').length,2);
+  for(const tab of ['summary','expenses','budgets','income']){vm.runInContext(`switchView('${tab}')`,context);assert.match(element('#finance-calendar').innerHTML,/Payment calendar/);assert.match(element('#finance-calendar').innerHTML,/data-calendar-day="2026-10-22"/);assert.match(element('#finance-calendar').innerHTML,/Pending ads/);}
+  vm.runInContext("calendarDay='2026-10-22';renderCalendar()",context);assert.match(element('#finance-calendar').innerHTML,/Expense due/);assert.match(element('#finance-calendar').innerHTML,/Received/);
+});
+test('expense board follows portal stages and separates paid history',async()=>{
+  const state={...dashboardState,expenses:[{...dashboardState.expenses[0],status:'Pending',stage:'draft'},{...dashboardState.expenses[1],stage:'ready'},{...dashboardState.expenses[0],id:'paid',description:'Paid bill',stage:'ready'}]};const{context,element}=browser(async()=>({ok:true,json:async()=>state}));await vm.runInContext('load()',context);element('#month').value='2026-10';vm.runInContext("expenseWeek='2026-10-19';switchView('expenses')",context);
+  const board=element('#expense-board-view').innerHTML;for(const text of ['To save','Ready to pay','Paid','Save all 1','Mark paid','Undo','This week'])assert.ok(board.includes(text));assert.equal(element('#transaction-view').hidden,true);assert.equal(vm.runInContext("expenseStage({status:'Paid',stage:'ready'})",context),'paid');
+  vm.runInContext("expenseMode='history';render()",context);assert.equal(element('#transaction-view').hidden,false);assert.equal(element('#table-title').textContent,'Paid expense history');assert.match(element('#rows').innerHTML,/Paid bill/);assert.ok(!element('#rows').innerHTML.includes('Pending ads'));
+});
+test('expense stage buttons are enabled again after a save completes',async()=>{
+  const state={...dashboardState,expenses:[{...dashboardState.expenses[1],stage:'ready'}]};const{context,element}=browser(async()=>({ok:true,json:async()=>state}));await vm.runInContext('load()',context);element('#month').value='2026-10';vm.runInContext("expenseWeek='2026-10-19';switchView('expenses')",context);
+  await vm.runInContext("mutate('setExpenseStage',{ids:['expense-2'],stage:'ready'})",context);const board=element('#expense-board-view').innerHTML;assert.match(board,/Mark paid/);assert.ok(!board.includes('disabled'));assert.equal(vm.runInContext('busy',context),false);
+});
