@@ -131,6 +131,37 @@ function renderTable() {
   $('#rows').innerHTML = rows.length ? rows.map(record => `<tr><td><div class="expense-cell"><span class="expense-icon">${esc(record.description.charAt(0).toUpperCase())}</span><span>${esc(record.description)}${isIncome ? '<small>' + esc(record.source) + '</small>' : ''}</span></div></td><td>${esc(record.category)}</td><td>${dateText(record.date)}</td><td><span class="badge ${['Pending', 'Expected'].includes(record.status) ? 'pending' : ''}">${esc(record.status)}</span></td><td class="amount">${money(record.amount)}</td><td><button class="row-action" data-edit="${esc(record.id)}" aria-label="Edit ${esc(record.description)}">Edit</button><button class="row-action" data-delete="${esc(record.id)}" aria-label="Delete ${esc(record.description)}">×</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No ${isIncome ? 'income' : 'expenses'} found. ${isIncome ? 'Add an income source or payment' : 'Add an expense'} to get started.</td></tr>`;
   $('#footer-count').textContent = rows.length + ' records · ' + money(sum(rows));
 }
+function renderSidebar() {
+  const isIncome = view === 'income';
+  $('#section-title').textContent = { expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' }[view];
+  $('#section-copy').textContent = { expenses: 'Manage your spending.', budgets: 'Plan every peso.', income: 'Track what comes in.' }[view];
+  $('#context-nav').setAttribute('aria-label', $('#section-title').textContent + ' controls');
+  if (view === 'budgets') {
+    $('#context-nav').innerHTML = '<button data-budget-home="true" class="active">◷ <span>Monthly dashboard</span></button><div class="context-label">CATEGORY LIMITS</div>' + cats.map(c => `<button data-budget-focus="${c}"><span class="context-dot"></span><span>${c}</span></button>`).join('');
+    return;
+  }
+  const records = selected(isIncome ? 'income' : 'expenses'), category = $('#category').value, status = $('#status').value;
+  const all = !category && !status;
+  const statuses = isIncome ? ['Received', 'Expected'] : ['Paid', 'Pending'];
+  $('#context-nav').innerHTML = `<button data-context-all="true" class="${all ? 'active' : ''}">≡ <span>All ${isIncome ? 'income' : 'expenses'}</span><em>${records.length}</em></button><div class="context-label">PAYMENT STATUS</div>`
+    + statuses.map(s => `<button data-context-status="${s}" class="${status === s ? 'active' : ''}"><span class="context-dot"></span><span>${s}</span><em>${records.filter(r => r.status === s).length}</em></button>`).join('')
+    + `<div class="context-label">${isIncome ? 'INCOME TYPES' : 'EXPENSE CATEGORIES'}</div>`
+    + (isIncome ? incomeCats : cats).map(c => `<button data-context-category="${c}" class="${category === c ? 'active' : ''}"><span class="context-dot"></span><span>${c}</span></button>`).join('');
+}
+function contextAction(button) {
+  if (view === 'budgets') {
+    if (button.dataset.budgetFocus) {
+      const field = document.querySelector(`[data-budget="${button.dataset.budgetFocus}"]`);
+      if (field) { field.scrollIntoView({ behavior: 'smooth', block: 'center' }); field.focus({ preventScroll: true }); }
+    } else if (button.dataset.budgetHome) $('#title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  $('#search').value = '';
+  if (button.dataset.contextAll) { $('#category').value = ''; $('#status').value = ''; }
+  else if (button.dataset.contextStatus) { $('#category').value = ''; $('#status').value = button.dataset.contextStatus; }
+  else if (button.dataset.contextCategory) { $('#status').value = ''; $('#category').value = button.dataset.contextCategory; }
+  render();
+}
 function render() {
   const expenses = selected(), incomeRecords = selected('income'), total = sum(expenses);
   const pending = sum(expenses.filter(e => e.status === 'Pending'));
@@ -139,7 +170,7 @@ function render() {
   const rows = budgetRows(), budget = rows.reduce((s, row) => s + row.limit, 0);
   const labels = { expenses: 'Expenses', budgets: 'Budgets', income: 'Income sources' };
   $('#period-label').textContent = new Date($('#month').value + '-01T12:00:00').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
-  $('#count').textContent = data.length; $('#income-count').textContent = income.length;
+  renderSidebar();
   $('#title').textContent = labels[view] + ' dashboard'; $('#crumb').textContent = labels[view];
   $('#subtitle').textContent = { expenses: 'Understand your spending, one expense at a time.', budgets: 'Give every peso a purpose. Plan your monthly spending.', income: 'Know where your income comes from and what is still expected.' }[view];
   $('#add').hidden = view === 'budgets'; $('#add').textContent = view === 'income' ? '＋ Add income' : '＋ Add expense';
@@ -204,6 +235,8 @@ document.addEventListener('click', async e => {
     if (confirm(`Delete this ${kind} record?`) && await mutate(kind === 'income' ? 'deleteIncome' : 'deleteExpense', { id: del.dataset.delete })) notify(`${kind === 'income' ? 'Income' : 'Expense'} deleted`);
   }
   if (nav && !busy) switchView(nav.dataset.view);
+  const context = e.target.closest('[data-context-all], [data-context-status], [data-context-category], [data-budget-focus], [data-budget-home]');
+  if (context && !busy) contextAction(context);
 });
 document.addEventListener('change', async e => {
   if (!e.target.matches('[data-budget]')) return;
